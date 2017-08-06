@@ -11,16 +11,12 @@
 			@ini_set('magic_quotes_gpc', 0);
 			@ini_set('magic_quotes_runtime', 0);
 
-			define('APP_DEFAULT_DENY_ALL_HTACCESS', 'Deny from all
-<IfModule mod_autoindex.c>
-Options -Indexes
-</ifModule>');
-
 			define('APP_START_TIME', time());
 			define('APP_REQUEST_RND', md5(APP_START.rand(10000, 99999).APP_START));
 			define('APP_VERSION_ROOT_PATH', APP_INDEX_ROOT_PATH.'rainloop/v/'.APP_VERSION.'/');
 
 			define('APP_USE_APC_CACHE', true);
+			define('APP_DEFAULT_DENY_ALL_HTACCESS', "Deny from all\n<IfModule mod_autoindex.c>\nOptions -Indexes\n</ifModule>");
 
 			if (function_exists('date_default_timezone_set'))
 			{
@@ -59,11 +55,11 @@ Options -Indexes
 				include_once APP_INDEX_ROOT_PATH.'include.php';
 			}
 
-			$sCustomDataPath = function_exists('__get_custom_data_full_path') ? rtrim(trim(__get_custom_data_full_path()), '\\/') : '';
+			$sCustomDataPath = function_exists('__get_custom_data_full_path') ? rtrim(trim(__get_custom_data_full_path()), '\\/') : $sCustomDataPath;
 			define('APP_DATA_FOLDER_PATH', 0 === strlen($sCustomDataPath) ? APP_INDEX_ROOT_PATH.'data/' : $sCustomDataPath.'/');
 			unset($sCustomDataPath);
 
-			$sCustomConfiguration = function_exists('__get_additional_configuration_name') ? trim(__get_additional_configuration_name()) : '';
+			$sCustomConfiguration = function_exists('__get_additional_configuration_name') ? trim(__get_additional_configuration_name()) : $sCustomConfiguration;
 			define('APP_ADDITIONAL_CONFIGURATION_NAME', $sCustomConfiguration);
 			unset($sCustomConfiguration);
 
@@ -151,6 +147,7 @@ Options -Indexes
 				define('APP_INSTALLED_VERSION', $sInstalled);
 
 				@file_put_contents(APP_DATA_FOLDER_PATH.'INSTALLED', APP_VERSION);
+				@file_put_contents(APP_DATA_FOLDER_PATH.'VERSION', APP_VERSION);
 				@file_put_contents(APP_DATA_FOLDER_PATH.'index.html', 'Forbidden');
 				@file_put_contents(APP_DATA_FOLDER_PATH.'index.php', 'Forbidden');
 				@file_put_contents(APP_DATA_FOLDER_PATH.'.htaccess', APP_DEFAULT_DENY_ALL_HTACCESS);

@@ -1,44 +1,66 @@
 
-(function () {
+import window from 'window';
+import _ from '_';
+import ko from 'ko';
+import $ from '$';
 
-	'use strict';
+import {
+	Magics, Layout, Focused,
+	MessageSetAction,
+	StorageResultType,
+	Notification
+} from 'Common/Enums';
 
-	var
-		_ = require('_'),
-		ko = require('ko'),
-		window = require('window'),
-		$ = require('$'),
+import {
+	trim, isNormal, isArray, inArray,
+	pInt, pString, plainToHtml,
+	windowResize, findEmailAndLinks,
+	getRealHeight
+} from 'Common/Utils';
 
-		kn = require('Knoin/Knoin'),
+import {
+	getFolderInboxName,
+	addNewMessageCache,
+	setFolderUidNext,
+	getFolderFromCacheList,
+	setFolderHash,
+	initMessageFlagsFromCache,
+	addRequestedMessage,
+	clearMessageFlagsFromCacheByFolder,
+	hasNewMessageAndRemoveFromCache,
+	storeMessageFlagsToCache,
+	clearNewMessageCache
+} from 'Common/Cache';
 
-		Enums = require('Common/Enums'),
-		Consts = require('Common/Consts'),
-		Globals = require('Common/Globals'),
-		Utils = require('Common/Utils'),
-		Links = require('Common/Links'),
-		Translator = require('Common/Translator'),
+import {MESSAGE_BODY_CACHE_LIMIT} from 'Common/Consts';
+import {data as GlobalsData, $div} from 'Common/Globals';
+import {mailBox, notificationMailIcon} from 'Common/Links';
+import {i18n, getNotification} from 'Common/Translator';
+import {momentNowUnix} from 'Common/Momentor';
 
-		Cache = require('Common/Cache'),
+import * as MessageHelper from 'Helper/Message';
+import {MessageModel} from 'Model/Message';
 
-		AppStore = require('Stores/User/App'),
-		FolderStore = require('Stores/User/Folder'),
-		PgpStore = require('Stores/User/Pgp'),
-		SettingsStore = require('Stores/User/Settings'),
+import {setHash} from 'Knoin/Knoin';
 
-		Remote = require('Remote/User/Ajax'),
+import AppStore from 'Stores/User/App';
+import AccountStore from 'Stores/User/Account';
+import FolderStore from 'Stores/User/Folder';
+import PgpStore from 'Stores/User/Pgp';
+import SettingsStore from 'Stores/User/Settings';
+import NotificationStore from 'Stores/User/Notification';
 
-		MessageModel = require('Model/Message'),
-		MessageHelper = require('Helper/Message')
-	;
+import {getApp} from 'Helper/Apps/User';
 
-	/**
-	 * @constructor
-	 */
-	function MessageUserStore()
+import Remote from 'Remote/User/Ajax';
+
+class MessageUserStore
+{
+	constructor()
 	{
 		this.staticMessage = new MessageModel();
 
-		this.messageList = ko.observableArray([]).extend({'rateLimit': 0});
+		this.messageList = ko.observableArray([]).extend({rateLimit: 0});
 
 		this.messageListCount = ko.observable(0);
 		this.messageListSearch = ko.observable('');
@@ -54,10 +76,10 @@
 
 		this.messageListLoading = ko.observable(false);
 		this.messageListIsNotCompleted = ko.observable(false);
-		this.messageListCompleteLoadingThrottle = ko.observable(false).extend({'throttle': 200});
-		this.messageListCompleteLoadingThrottleForAnimation = ko.observable(false).extend({'specialThrottle': 700});
+		this.messageListCompleteLoadingThrottle = ko.observable(false).extend({throttle: 200});
+		this.messageListCompleteLoadingThrottleForAnimation = ko.observable(false).extend({specialThrottle: 700});
 
-		this.messageListDisableAutoSelect = ko.observable(false).extend({'falseTimeout': 500});
+		this.messageListDisableAutoSelect = ko.observable(false).extend({falseTimeout: 500});
 
 		this.selectorMessageSelected = ko.observable(null);
 		this.selectorMessageFocused = ko.observable(null);
@@ -71,11 +93,7 @@
 
 		this.messageCurrentLoading = ko.observable(false);
 
-		this.messageLoading = ko.computed(function () {
-			return this.messageCurrentLoading();
-		}, this);
-
-		this.messageLoadingThrottle = ko.observable(false).extend({'throttle': 50});
+		this.messageLoadingThrottle = ko.observable(false).extend({throttle: Magics.Time50ms});
 
 		this.messageFullScreenMode = ko.observable(false);
 
@@ -87,370 +105,334 @@
 
 		this.onMessageResponse = _.bind(this.onMessageResponse, this);
 
-		this.purgeMessageBodyCacheThrottle = _.throttle(this.purgeMessageBodyCache, 1000 * 30);
+		this.purgeMessageBodyCacheThrottle = _.throttle(this.purgeMessageBodyCache, Magics.Time30s);
 	}
 
-	MessageUserStore.prototype.computers = function ()
-	{
-		var self = this;
+	computers() {
 
-		this.messageListEndHash = ko.computed(function () {
-			return this.messageListEndFolder() + '|' + this.messageListEndSearch() +
-				'|' + this.messageListEndThreadUid() +
-				'|' + this.messageListEndPage();
-		}, this);
+		this.messageLoading = ko.computed(() => this.messageCurrentLoading());
 
-		this.messageListPageCount = ko.computed(function () {
-			var iPage = window.Math.ceil(this.messageListCount() /
-				SettingsStore.messagesPerPage());
-			return 0 >= iPage ? 1 : iPage;
-		}, this);
+		this.messageListEndHash = ko.computed(
+			() => this.messageListEndFolder() + '|' + this.messageListEndSearch() +
+				'|' + this.messageListEndThreadUid() + '|' + this.messageListEndPage()
+		);
 
-		this.mainMessageListSearch = ko.computed({
-			'read': this.messageListSearch,
-			'write': function (sValue) {
-				kn.setHash(Links.mailBox(
-					FolderStore.currentFolderFullNameHash(), 1,
-					Utils.trim(sValue.toString()), self.messageListThreadUid()
-				));
-			},
-			'owner': this
+		this.messageListPageCount = ko.computed(() => {
+			const page = window.Math.ceil(this.messageListCount() / SettingsStore.messagesPerPage());
+			return 0 >= page ? 1 : page;
 		});
 
-		this.messageListCompleteLoading = ko.computed(function () {
-			var
-				bOne = this.messageListLoading(),
-				bTwo = this.messageListIsNotCompleted()
-			;
-			return bOne || bTwo;
-		}, this);
+		this.mainMessageListSearch = ko.computed({
+			read: this.messageListSearch,
+			write: (value) => {
+				setHash(
+					mailBox(FolderStore.currentFolderFullNameHash(), 1, trim(value.toString()), this.messageListThreadUid())
+				);
+			}
+		});
 
-		this.isMessageSelected = ko.computed(function () {
-			return null !== this.message();
-		}, this);
+		this.messageListCompleteLoading = ko.computed(() => {
+			const
+				one = this.messageListLoading(),
+				two = this.messageListIsNotCompleted();
+			return one || two;
+		});
 
-		this.messageListChecked = ko.computed(function () {
-			return _.filter(this.messageList(), function (oItem) {
-				return oItem.checked();
-			});
-		}, this).extend({'rateLimit': 0});
+		this.isMessageSelected = ko.computed(() => null !== this.message());
 
-		this.hasCheckedMessages = ko.computed(function () {
-			return 0 < this.messageListChecked().length;
-		}, this).extend({'rateLimit': 0});
+		this.messageListChecked = ko.computed(
+			() => _.filter(this.messageList(), (item) => item.checked())
+		).extend({rateLimit: 0});
 
-		this.messageListCheckedOrSelected = ko.computed(function () {
+		this.hasCheckedMessages = ko.computed(() => 0 < this.messageListChecked().length).extend({rateLimit: 0});
 
-			var
-				aChecked = this.messageListChecked(),
-				oSelectedMessage = this.selectorMessageSelected()
-			;
+		this.messageListCheckedOrSelected = ko.computed(() => {
+			const
+				checked = this.messageListChecked(),
+				selectedMessage = this.selectorMessageSelected(),
+				focusedMessage = this.selectorMessageFocused();
 
-			return _.union(aChecked, oSelectedMessage ? [oSelectedMessage] : []);
+			if (checked.length) {
+				return _.union(checked, selectedMessage ? [selectedMessage] : []);
+			} else if (selectedMessage) {
+				return [selectedMessage];
+			}
 
-		}, this);
+			return focusedMessage ? [focusedMessage] : [];
+		});
 
-		this.messageListCheckedOrSelectedUidsWithSubMails = ko.computed(function () {
-			var aList = [];
-			_.each(this.messageListCheckedOrSelected(), function (oMessage) {
-				if (oMessage)
+		this.messageListCheckedOrSelectedUidsWithSubMails = ko.computed(() => {
+			let result = [];
+			_.each(this.messageListCheckedOrSelected(), (message) => {
+				if (message)
 				{
-					aList.push(oMessage.uid);
-					if (1 < oMessage.threadsLen())
+					result.push(message.uid);
+					if (1 < message.threadsLen())
 					{
-						aList = _.union(aList, oMessage.threads());
+						result = _.union(result, message.threads());
 					}
 				}
 			});
-			return aList;
-		}, this);
-	};
+			return result;
+		});
+	}
 
-	MessageUserStore.prototype.subscribers = function ()
-	{
-		this.messageListCompleteLoading.subscribe(function (bValue) {
-			bValue = !!bValue;
-			this.messageListCompleteLoadingThrottle(bValue);
-			this.messageListCompleteLoadingThrottleForAnimation(bValue);
-		}, this);
+	subscribers() {
 
-		this.messageList.subscribe(_.debounce(function (aList) {
-			_.each(aList, function (oItem) {
-				if (oItem && oItem.newForAnimation())
+		this.messageListCompleteLoading.subscribe((value) => {
+			value = !!value;
+			this.messageListCompleteLoadingThrottle(value);
+			this.messageListCompleteLoadingThrottleForAnimation(value);
+		});
+
+		this.messageList.subscribe(_.debounce((list) => {
+			_.each(list, (item) => {
+				if (item && item.newForAnimation())
 				{
-					oItem.newForAnimation(false);
+					item.newForAnimation(false);
 				}
 			});
-		}, 500));
+		}, Magics.Time500ms));
 
-		this.message.subscribe(function (oMessage) {
+		this.message.subscribe((message) => {
 
-			if (oMessage)
+			if (message)
 			{
-				 if (Enums.Layout.NoPreview === SettingsStore.layout())
+				if (Layout.NoPreview === SettingsStore.layout())
 				{
-					AppStore.focusedState(Enums.Focused.MessageView);
+					AppStore.focusedState(Focused.MessageView);
 				}
 			}
 			else
 			{
-				AppStore.focusedState(Enums.Focused.MessageList);
+				AppStore.focusedState(Focused.MessageList);
 
 				this.messageFullScreenMode(false);
 				this.hideMessageBodies();
 			}
 
-		}, this);
+		});
 
-		this.messageLoading.subscribe(function (bValue) {
-			this.messageLoadingThrottle(bValue);
-		}, this);
+		this.messageLoading.subscribe((value) => {
+			this.messageLoadingThrottle(value);
+		});
 
-		this.messagesBodiesDom.subscribe(function (oDom) {
-			if (oDom && !(oDom instanceof $))
+		this.messagesBodiesDom.subscribe((dom) => {
+			if (dom && !(dom instanceof $))
 			{
-				this.messagesBodiesDom($(oDom));
+				this.messagesBodiesDom($(dom));
 			}
-		}, this);
+		});
 
-		this.messageListEndFolder.subscribe(function (sFolder) {
-			var oMessage = this.message();
-			if (oMessage && sFolder && sFolder !== oMessage.folderFullNameRaw)
+		this.messageListEndFolder.subscribe((folder) => {
+			const message = this.message();
+			if (message && folder && folder !== message.folderFullNameRaw)
 			{
 				this.message(null);
 			}
-		}, this);
-	};
+		});
+	}
 
-	MessageUserStore.prototype.purgeMessageBodyCache = function()
-	{
-		var
-			iCount = 0,
-			oMessagesDom = null,
-			iEnd = Globals.iMessageBodyCacheCount - Consts.Values.MessageBodyCacheLimit
-		;
+	purgeMessageBodyCache() {
 
-		if (0 < iEnd)
+		let count = 0;
+		const end = GlobalsData.iMessageBodyCacheCount - MESSAGE_BODY_CACHE_LIMIT;
+
+		if (0 < end)
 		{
-			oMessagesDom = this.messagesBodiesDom();
-			if (oMessagesDom)
+			const messagesDom = this.messagesBodiesDom();
+			if (messagesDom)
 			{
-				oMessagesDom.find('.rl-cache-class').each(function () {
-					var oItem = $(this);
-					if (iEnd > oItem.data('rl-cache-count'))
+				messagesDom.find('.rl-cache-class').each(function() {
+					const item = $(this); // eslint-disable-line no-invalid-this
+					if (end > item.data('rl-cache-count'))
 					{
-						oItem.addClass('rl-cache-purge');
-						iCount++;
+						item.addClass('rl-cache-purge');
+						count += 1;
 					}
 				});
 
-				if (0 < iCount)
+				if (0 < count)
 				{
-					_.delay(function () {
-						oMessagesDom.find('.rl-cache-purge').remove();
-					}, 300);
+					_.delay(() => messagesDom.find('.rl-cache-purge').remove(), Magics.Time350ms);
 				}
 			}
 		}
-	};
+	}
 
-	MessageUserStore.prototype.initUidNextAndNewMessages = function (sFolder, sUidNext, aNewMessages)
-	{
-		if (Cache.getFolderInboxName() === sFolder && Utils.isNormal(sUidNext) && sUidNext !== '')
+	initUidNextAndNewMessages(folder, uidNext, newMessages) {
+		if (getFolderInboxName() === folder && isNormal(uidNext) && '' !== uidNext)
 		{
-			if (Utils.isArray(aNewMessages) && 0 < aNewMessages.length)
+			if (isArray(newMessages) && 0 < newMessages.length)
 			{
-				var
-					iIndex = 0,
-					iLen = aNewMessages.length,
-					NotificationStore = require('Stores/User/Notification')
-				;
-
-				_.each(aNewMessages, function (oItem) {
-					Cache.addNewMessageCache(sFolder, oItem.Uid);
+				_.each(newMessages, (item) => {
+					addNewMessageCache(folder, item.Uid);
 				});
 
 				NotificationStore.playSoundNotification();
 
-				if (3 < iLen)
+				const len = newMessages.length;
+				if (3 < len)
 				{
 					NotificationStore.displayDesktopNotification(
-						Links.notificationMailIcon(),
-						require('Stores/User/Account').email(),
-						Translator.i18n('MESSAGE_LIST/NEW_MESSAGE_NOTIFICATION', {
-							'COUNT': iLen
+						notificationMailIcon(),
+						AccountStore.email(),
+						i18n('MESSAGE_LIST/NEW_MESSAGE_NOTIFICATION', {
+							'COUNT': len
 						}),
 						{'Folder': '', 'Uid': ''}
 					);
 				}
 				else
 				{
-					for (; iIndex < iLen; iIndex++)
-					{
+					_.each(newMessages, (item) => {
 						NotificationStore.displayDesktopNotification(
-							Links.notificationMailIcon(),
-							MessageHelper.emailArrayToString(
-								MessageHelper.emailArrayFromJson(aNewMessages[iIndex].From), false),
-							aNewMessages[iIndex].Subject,
-							{
-								'Folder': aNewMessages[iIndex].Folder,
-								'Uid': aNewMessages[iIndex].Uid
-							}
+							notificationMailIcon(),
+							MessageHelper.emailArrayToString(MessageHelper.emailArrayFromJson(item.From), false),
+							item.Subject,
+							{'Folder': item.Folder, 'Uid': item.Uid}
 						);
-					}
+					});
 				}
 			}
 
-			Cache.setFolderUidNext(sFolder, sUidNext);
+			setFolderUidNext(folder, uidNext);
 		}
-	};
+	}
 
-	MessageUserStore.prototype.hideMessageBodies = function ()
-	{
-		var oMessagesDom = this.messagesBodiesDom();
-		if (oMessagesDom)
+	hideMessageBodies() {
+		const messagesDom = this.messagesBodiesDom();
+		if (messagesDom)
 		{
-			oMessagesDom.find('.b-text-part').hide();
+			messagesDom.find('.b-text-part').hide();
 		}
-	};
+	}
 
 	/**
-	 * @param {string} sFromFolderFullNameRaw
-	 * @param {Array} aUidForRemove
-	 * @param {string=} sToFolderFullNameRaw = ''
-	 * @param {bCopy=} bCopy = false
+	 * @param {string} fromFolderFullNameRaw
+	 * @param {Array} uidForRemove
+	 * @param {string=} toFolderFullNameRaw = ''
+	 * @param {boolean=} copy = false
 	 */
-	MessageUserStore.prototype.removeMessagesFromList = function (
-		sFromFolderFullNameRaw, aUidForRemove, sToFolderFullNameRaw, bCopy)
-	{
-		sToFolderFullNameRaw = Utils.isNormal(sToFolderFullNameRaw) ? sToFolderFullNameRaw : '';
-		bCopy = Utils.isUnd(bCopy) ? false : !!bCopy;
+	removeMessagesFromList(fromFolderFullNameRaw, uidForRemove, toFolderFullNameRaw = '', copy = false) {
 
-		aUidForRemove = _.map(aUidForRemove, function (mValue) {
-			return Utils.pInt(mValue);
-		});
+		uidForRemove = _.map(uidForRemove, (mValue) => pInt(mValue));
 
-		var
-			self = this,
-			iUnseenCount = 0,
-			oMessage = null,
-			sTrashFolder = FolderStore.trashFolder(),
-			sSpamFolder = FolderStore.spamFolder(),
-			aMessageList = this.messageList(),
-			oFromFolder = Cache.getFolderFromCacheList(sFromFolderFullNameRaw),
-			oToFolder = '' === sToFolderFullNameRaw ? null : Cache.getFolderFromCacheList(sToFolderFullNameRaw || ''),
-			sCurrentFolderFullNameRaw = FolderStore.currentFolderFullNameRaw(),
-			oCurrentMessage = this.message(),
-			aMessages = sCurrentFolderFullNameRaw === sFromFolderFullNameRaw ? _.filter(aMessageList, function (oMessage) {
-				return oMessage && -1 < Utils.inArray(Utils.pInt(oMessage.uid), aUidForRemove);
-			}) : []
-		;
+		let
+			unseenCount = 0,
+			messageList = this.messageList(),
+			currentMessage = this.message();
 
-		_.each(aMessages, function (oMessage) {
-			if (oMessage && oMessage.unseen())
+		const
+			trashFolder = FolderStore.trashFolder(),
+			spamFolder = FolderStore.spamFolder(),
+			fromFolder = getFolderFromCacheList(fromFolderFullNameRaw),
+			toFolder = '' === toFolderFullNameRaw ? null : getFolderFromCacheList(toFolderFullNameRaw || ''),
+			currentFolderFullNameRaw = FolderStore.currentFolderFullNameRaw(),
+			messages = currentFolderFullNameRaw === fromFolderFullNameRaw ?
+				_.filter(messageList, (item) => (item && -1 < inArray(pInt(item.uid), uidForRemove))) : [];
+
+		_.each(messages, (item) => {
+			if (item && item.unseen())
 			{
-				iUnseenCount++;
+				unseenCount += 1;
 			}
 		});
 
-		if (oFromFolder && !bCopy)
+		if (fromFolder && !copy)
 		{
-			oFromFolder.messageCountAll(0 <= oFromFolder.messageCountAll() - aUidForRemove.length ?
-				oFromFolder.messageCountAll() - aUidForRemove.length : 0);
+			fromFolder.messageCountAll(0 <= fromFolder.messageCountAll() - uidForRemove.length ?
+				fromFolder.messageCountAll() - uidForRemove.length : 0);
 
-			if (0 < iUnseenCount)
+			if (0 < unseenCount)
 			{
-				oFromFolder.messageCountUnread(0 <= oFromFolder.messageCountUnread() - iUnseenCount ?
-					oFromFolder.messageCountUnread() - iUnseenCount : 0);
+				fromFolder.messageCountUnread(0 <= fromFolder.messageCountUnread() - unseenCount ?
+					fromFolder.messageCountUnread() - unseenCount : 0);
 			}
 		}
 
-		if (oToFolder)
+		if (toFolder)
 		{
-			if (sTrashFolder === oToFolder.fullNameRaw || sSpamFolder === oToFolder.fullNameRaw)
+			if (trashFolder === toFolder.fullNameRaw || spamFolder === toFolder.fullNameRaw)
 			{
-				iUnseenCount = 0;
+				unseenCount = 0;
 			}
 
-			oToFolder.messageCountAll(oToFolder.messageCountAll() + aUidForRemove.length);
-			if (0 < iUnseenCount)
+			toFolder.messageCountAll(toFolder.messageCountAll() + uidForRemove.length);
+			if (0 < unseenCount)
 			{
-				oToFolder.messageCountUnread(oToFolder.messageCountUnread() + iUnseenCount);
+				toFolder.messageCountUnread(toFolder.messageCountUnread() + unseenCount);
 			}
 
-			oToFolder.actionBlink(true);
+			toFolder.actionBlink(true);
 		}
 
-		if (0 < aMessages.length)
+		if (0 < messages.length)
 		{
-			if (bCopy)
+			if (copy)
 			{
-				_.each(aMessages, function (oMessage) {
-					oMessage.checked(false);
+				_.each(messages, (item) => {
+					item.checked(false);
 				});
 			}
 			else
 			{
 				this.messageListIsNotCompleted(true);
 
-				_.each(aMessages, function (oMessage) {
-					if (oCurrentMessage && oCurrentMessage.hash === oMessage.hash)
+				_.each(messages, (item) => {
+					if (currentMessage && currentMessage.hash === item.hash)
 					{
-						oCurrentMessage = null;
-						self.message(null);
+						currentMessage = null;
+						this.message(null);
 					}
 
-					oMessage.deleted(true);
+					item.deleted(true);
 				});
 
-				_.delay(function () {
-					_.each(aMessages, function (oMessage) {
-						self.messageList.remove(oMessage);
+				_.delay(() => {
+					_.each(messages, (item) => {
+						this.messageList.remove(item);
 					});
-				}, 400);
+				}, Magics.Time350ms);
 			}
 		}
 
-		if ('' !== sFromFolderFullNameRaw)
+		if ('' !== fromFolderFullNameRaw)
 		{
-			Cache.setFolderHash(sFromFolderFullNameRaw, '');
+			setFolderHash(fromFolderFullNameRaw, '');
 		}
 
-		if ('' !== sToFolderFullNameRaw)
+		if ('' !== toFolderFullNameRaw)
 		{
-			Cache.setFolderHash(sToFolderFullNameRaw, '');
+			setFolderHash(toFolderFullNameRaw, '');
 		}
 
 		if ('' !== this.messageListThreadUid())
 		{
-			aMessageList = this.messageList();
+			messageList = this.messageList();
 
-			if (aMessageList && 0 < aMessageList.length && !!_.find(aMessageList, function (oMessage) {
-				return !!(oMessage && oMessage.deleted() && oMessage.uid === self.messageListThreadUid());
-			}))
+			if (messageList && 0 < messageList.length &&
+				!!_.find(messageList, (item) => !!(item && item.deleted() && item.uid === this.messageListThreadUid())))
 			{
-				oMessage = _.find(aMessageList, function (oMessage) {
-					return oMessage && !oMessage.deleted();
-				});
-
-				if (oMessage && this.messageListThreadUid() !== Utils.pString(oMessage.uid))
+				const message = _.find(messageList, (item) => item && !item.deleted());
+				if (message && this.messageListThreadUid() !== pString(message.uid))
 				{
-					this.messageListThreadUid(Utils.pString(oMessage.uid));
+					this.messageListThreadUid(pString(message.uid));
 
-					kn.setHash(Links.mailBox(
+					setHash(mailBox(
 						FolderStore.currentFolderFullNameHash(),
 						this.messageListPage(),
 						this.messageListSearch(),
 						this.messageListThreadUid()
 					), true, true);
 				}
-				else if (!oMessage)
+				else if (!message)
 				{
 					if (1 < this.messageListPage())
 					{
 						this.messageListPage(this.messageListPage() - 1);
 
-						kn.setHash(Links.mailBox(
+						setHash(mailBox(
 							FolderStore.currentFolderFullNameHash(),
 							this.messageListPage(),
 							this.messageListSearch(),
@@ -461,7 +443,7 @@
 					{
 						this.messageListThreadUid('');
 
-						kn.setHash(Links.mailBox(
+						setHash(mailBox(
 							FolderStore.currentFolderFullNameHash(),
 							this.messageListPageBeforeThread(),
 							this.messageListSearch()
@@ -470,250 +452,238 @@
 				}
 			}
 		}
-	};
-
-	MessageUserStore.prototype.addBlockquoteSwitcherCallback = function ()
-	{
-		var $self = $(this);
-		if ('' !== Utils.trim(($self.text())))
-		{
-			$self.addClass('rl-bq-switcher hidden-bq');
-			$('<span class="rlBlockquoteSwitcher"><i class="icon-ellipsis" /></span>')
-				.insertBefore($self)
-				.on('click.rlBlockquoteSwitcher', function () {
-					$self.toggleClass('hidden-bq');
-					Utils.windowResize();
-				})
-				.after('<br />')
-				.before('<br />')
-			;
-		}
-	};
+	}
 
 	/**
-	 * @param {Object} oMessageTextBody
+	 * @param {Object} messageTextBody
 	 */
-	MessageUserStore.prototype.initBlockquoteSwitcher = function (oMessageTextBody)
-	{
-		if (oMessageTextBody)
+	initBlockquoteSwitcher(messageTextBody) {
+		if (messageTextBody)
 		{
-			var $oList = $('blockquote:not(.rl-bq-switcher)', oMessageTextBody).filter(function () {
-				return 0 === $(this).parent().closest('blockquote', oMessageTextBody).length;
+			const $oList = $('blockquote:not(.rl-bq-switcher)', messageTextBody).filter(function() {
+				return 0 === $(this).parent().closest('blockquote', messageTextBody).length; // eslint-disable-line no-invalid-this
 			});
 
 			if ($oList && 0 < $oList.length)
 			{
-				$oList.each(this.addBlockquoteSwitcherCallback);
+				$oList.each(function() {
+					const $this = $(this); // eslint-disable-line no-invalid-this
+
+					let h = $this.height();
+					if (0 === h)
+					{
+						h = getRealHeight($this);
+					}
+
+					if ('' !== trim($this.text()) && (0 === h || 100 < h))
+					{
+						$this.addClass('rl-bq-switcher hidden-bq');
+						$('<span class="rlBlockquoteSwitcher"><i class="icon-ellipsis" /></span>')
+							.insertBefore($this)
+							.on('click.rlBlockquoteSwitcher', () => {
+								$this.toggleClass('hidden-bq');
+								windowResize();
+							})
+							.after('<br />')
+							.before('<br />');
+					}
+				});
 			}
 		}
-	};
+	}
 
 	/**
-	 * @param {Object} oMessageTextBody
+	 * @param {Object} messageTextBody
+	 * @param {Object} message
 	 */
-	MessageUserStore.prototype.initOpenPgpControls = function (oMessageTextBody)
-	{
-		if (oMessageTextBody && oMessageTextBody.find)
+	initOpenPgpControls(messageTextBody, message) {
+		if (messageTextBody && messageTextBody.find)
 		{
-			oMessageTextBody.find('.b-plain-openpgp:not(.inited)').each(function () {
-				PgpStore.initMessageBodyControls($(this));
+			messageTextBody.find('.b-plain-openpgp:not(.inited)').each(function() {
+				PgpStore.initMessageBodyControls($(this), message); // eslint-disable-line no-invalid-this
 			});
 		}
-	};
+	}
 
-	MessageUserStore.prototype.setMessage = function (oData, bCached)
-	{
-		var
-			bNew = false,
-			bIsHtml = false,
-			bHasExternals = false,
-			bHasInternals = false,
-			oBody = null,
-			oTextBody = null,
-			sId = '',
-			sPlain = '',
-			sResultHtml = '',
-			bPgpSigned = false,
-			bPgpEncrypted = false,
-			oMessagesDom = this.messagesBodiesDom(),
-			oSelectedMessage = this.selectorMessageSelected(),
-			oMessage = this.message(),
-			aThreads = []
-		;
+	setMessage(data, cached) {
 
-		if (oData && oMessage && oData.Result && 'Object/Message' === oData.Result['@Object'] &&
-			oMessage.folderFullNameRaw === oData.Result.Folder)
+		let
+			isNew = false,
+			body = null,
+			id = '',
+			plain = '',
+			resultHtml = '',
+			pgpSigned = false,
+			messagesDom = this.messagesBodiesDom(),
+			selectedMessage = this.selectorMessageSelected(),
+			message = this.message();
+
+		if (data && message && data.Result && 'Object/Message' === data.Result['@Object'] &&
+			message.folderFullNameRaw === data.Result.Folder)
 		{
-			aThreads = oMessage.threads();
-			if (oMessage.uid !== oData.Result.Uid && 1 < aThreads.length &&
-				-1 < Utils.inArray(oData.Result.Uid, aThreads))
+			const threads = message.threads();
+			if (message.uid !== data.Result.Uid && 1 < threads.length && -1 < inArray(data.Result.Uid, threads))
 			{
-				oMessage = MessageModel.newInstanceFromJson(oData.Result);
-				if (oMessage)
+				message = MessageModel.newInstanceFromJson(data.Result);
+				if (message)
 				{
-					oMessage.threads(aThreads);
-					Cache.initMessageFlagsFromCache(oMessage);
+					message.threads(threads);
+					initMessageFlagsFromCache(message);
 
-					this.message(this.staticMessage.populateByMessageListItem(oMessage));
-					oMessage = this.message();
+					this.message(this.staticMessage.populateByMessageListItem(message));
+					message = this.message();
 
-					bNew = true;
+					isNew = true;
 				}
 			}
 
-			if (oMessage && oMessage.uid === oData.Result.Uid)
+			if (message && message.uid === data.Result.Uid)
 			{
 				this.messageError('');
 
-				oMessage.initUpdateByMessageJson(oData.Result);
-				Cache.addRequestedMessage(oMessage.folderFullNameRaw, oMessage.uid);
+				message.initUpdateByMessageJson(data.Result);
+				addRequestedMessage(message.folderFullNameRaw, message.uid);
 
-				if (!bCached)
+				if (!cached)
 				{
-					oMessage.initFlagsByJson(oData.Result);
+					message.initFlagsByJson(data.Result);
 				}
 
-				oMessagesDom = oMessagesDom && oMessagesDom[0] ? oMessagesDom : null;
-				if (oMessagesDom)
+				messagesDom = messagesDom && messagesDom[0] ? messagesDom : null;
+				if (messagesDom)
 				{
-					sId = 'rl-mgs-' + oMessage.hash.replace(/[^a-zA-Z0-9]/g, '');
-					oTextBody = oMessagesDom.find('#' + sId);
+					id = 'rl-mgs-' + message.hash.replace(/[^a-zA-Z0-9]/g, '');
 
-					if (!oTextBody || !oTextBody[0])
+					const textBody = messagesDom.find('#' + id);
+					if (!textBody || !textBody[0])
 					{
-						bHasExternals = !!oData.Result.HasExternals;
-						bHasInternals = !!oData.Result.HasInternals;
-
-						if (Utils.isNormal(oData.Result.Html) && '' !== oData.Result.Html)
+						let isHtml = false;
+						if (isNormal(data.Result.Html) && '' !== data.Result.Html)
 						{
-							bIsHtml = true;
-							sResultHtml = oData.Result.Html.toString();
+							isHtml = true;
+							resultHtml = data.Result.Html.toString();
 						}
-						else if (Utils.isNormal(oData.Result.Plain) && '' !== oData.Result.Plain)
+						else if (isNormal(data.Result.Plain) && '' !== data.Result.Plain)
 						{
-							bIsHtml = false;
-							sResultHtml = Utils.plainToHtml(oData.Result.Plain.toString(), false);
+							isHtml = false;
+							resultHtml = plainToHtml(data.Result.Plain.toString(), false);
 
-							if ((oMessage.isPgpSigned() || oMessage.isPgpEncrypted()) && require('Stores/User/Pgp').capaOpenPGP())
+							if ((message.isPgpSigned() || message.isPgpEncrypted()) && PgpStore.capaOpenPGP())
 							{
-								sPlain = Utils.pString(oData.Result.Plain);
+								plain = pString(data.Result.Plain);
 
-								bPgpEncrypted = /---BEGIN PGP MESSAGE---/.test(sPlain);
-								if (!bPgpEncrypted)
+								const isPgpEncrypted = (/---BEGIN PGP MESSAGE---/).test(plain);
+								if (!isPgpEncrypted)
 								{
-									bPgpSigned = /-----BEGIN PGP SIGNED MESSAGE-----/.test(sPlain) &&
-										/-----BEGIN PGP SIGNATURE-----/.test(sPlain);
+									pgpSigned = (/-----BEGIN PGP SIGNED MESSAGE-----/).test(plain) &&
+										(/-----BEGIN PGP SIGNATURE-----/).test(plain);
 								}
 
-								Globals.$div.empty();
-								if (bPgpSigned && oMessage.isPgpSigned())
+								$div.empty();
+								if (pgpSigned && message.isPgpSigned())
 								{
-									sResultHtml =
-										Globals.$div.append(
-											$('<pre class="b-plain-openpgp signed"></pre>').text(sPlain)
-										).html()
-									;
+									resultHtml = $div.append(
+										$('<pre class="b-plain-openpgp signed"></pre>').text(plain)
+									).html();
 								}
-								else if (bPgpEncrypted && oMessage.isPgpEncrypted())
+								else if (isPgpEncrypted && message.isPgpEncrypted())
 								{
-									sResultHtml =
-										Globals.$div.append(
-											$('<pre class="b-plain-openpgp encrypted"></pre>').text(sPlain)
-										).html()
-									;
+									resultHtml = $div.append(
+										$('<pre class="b-plain-openpgp encrypted"></pre>').text(plain)
+									).html();
 								}
 								else
 								{
-									sResultHtml = '<pre>' + sResultHtml + '</pre>';
+									resultHtml = '<pre>' + resultHtml + '</pre>';
 								}
 
-								sPlain = '';
+								$div.empty();
 
-								Globals.$div.empty();
-
-								oMessage.isPgpSigned(bPgpSigned);
-								oMessage.isPgpEncrypted(bPgpEncrypted);
+								message.isPgpSigned(pgpSigned);
+								message.isPgpEncrypted(isPgpEncrypted);
 							}
 							else
 							{
-								sResultHtml = '<pre>' + sResultHtml + '</pre>';
+								resultHtml = '<pre>' + resultHtml + '</pre>';
 							}
 						}
 						else
 						{
-							bIsHtml = false;
-							sResultHtml = '<pre>' + sResultHtml + '</pre>';
+							isHtml = false;
+							resultHtml = '<pre>' + resultHtml + '</pre>';
 						}
 
-						oBody = $('<div id="' + sId + '" ></div>').hide().addClass('rl-cache-class');
-						oBody.data('rl-cache-count', ++Globals.iMessageBodyCacheCount);
+						GlobalsData.iMessageBodyCacheCount += 1;
 
-						oBody
-							.html(Utils.findEmailAndLinks(sResultHtml))
-							.addClass('b-text-part ' + (bIsHtml ? 'html' : 'plain'))
-						;
+						body = $('<div id="' + id + '" ></div>').hide().addClass('rl-cache-class');
+						body.data('rl-cache-count', GlobalsData.iMessageBodyCacheCount);
 
-						oMessage.isHtml(!!bIsHtml);
-						oMessage.hasImages(!!bHasExternals);
+						body
+							.html(findEmailAndLinks(resultHtml))
+							.addClass('b-text-part ' + (isHtml ? 'html' : 'plain'));
 
-						oMessage.body = oBody;
-						if (oMessage.body)
+						message.isHtml(!!isHtml);
+						message.hasImages(!!data.Result.HasExternals);
+
+						message.body = body;
+						if (message.body)
 						{
-							oMessagesDom.append(oMessage.body);
+							messagesDom.append(message.body);
 						}
 
-						oMessage.storeDataInDom();
+						message.storeDataInDom();
 
-						if (bHasInternals)
+						if (data.Result.HasInternals)
 						{
-							oMessage.showInternalImages(true);
+							message.showInternalImages(true);
 						}
 
-						if (oMessage.hasImages() && SettingsStore.showImages())
+						if (message.hasImages() && SettingsStore.showImages())
 						{
-							oMessage.showExternalImages(true);
+							message.showExternalImages(true);
 						}
 
 						this.purgeMessageBodyCacheThrottle();
 					}
 					else
 					{
-						oMessage.body = oTextBody;
-						if (oMessage.body)
+						message.body = textBody;
+						if (message.body)
 						{
-							oMessage.body.data('rl-cache-count', ++Globals.iMessageBodyCacheCount);
-							oMessage.fetchDataFromDom();
+							GlobalsData.iMessageBodyCacheCount += 1;
+							message.body.data('rl-cache-count', GlobalsData.iMessageBodyCacheCount);
+							message.fetchDataFromDom();
 						}
 					}
 
-					this.messageActiveDom(oMessage.body);
+					this.messageActiveDom(message.body);
 
 					this.hideMessageBodies();
 
-					if (oBody)
+					if (body)
 					{
-						this.initOpenPgpControls(oBody);
+						this.initOpenPgpControls(body, message);
 
-						this.initBlockquoteSwitcher(oBody);
+						this.initBlockquoteSwitcher(body);
 					}
 
-					oMessage.body.show();
+					message.body.show();
 				}
 
-				Cache.initMessageFlagsFromCache(oMessage);
-				if (oMessage.unseen() || oMessage.hasUnseenSubMessage())
+				initMessageFlagsFromCache(message);
+				if (message.unseen() || message.hasUnseenSubMessage())
 				{
-					require('App/User').messageListAction(oMessage.folderFullNameRaw,
-						oMessage.uid, Enums.MessageSetAction.SetSeen, [oMessage]);
+					getApp().messageListAction(
+						message.folderFullNameRaw, MessageSetAction.SetSeen, [message]);
 				}
 
-				if (bNew)
+				if (isNew)
 				{
-					oMessage = this.message();
+					message = this.message();
 
-					if (oSelectedMessage && oMessage && (
-						oMessage.folderFullNameRaw !== oSelectedMessage.folderFullNameRaw ||
-						oMessage.uid !== oSelectedMessage.uid
+					if (selectedMessage && message && (
+						message.folderFullNameRaw !== selectedMessage.folderFullNameRaw ||
+						message.uid !== selectedMessage.uid
 					))
 					{
 						this.selectorMessageSelected(null);
@@ -722,44 +692,41 @@
 							this.selectorMessageFocused(null);
 						}
 					}
-					else if (!oSelectedMessage && oMessage)
+					else if (!selectedMessage && message)
 					{
-						oSelectedMessage = _.find(this.messageList(), function (oSubMessage) {
-							return oSubMessage &&
-								oSubMessage.folderFullNameRaw === oMessage.folderFullNameRaw &&
-								oSubMessage.uid === oMessage.uid;
-						});
+						selectedMessage = _.find(this.messageList(),
+							(subMessage) => subMessage &&
+								subMessage.folderFullNameRaw === message.folderFullNameRaw &&
+								subMessage.uid === message.uid
+						);
 
-						if (oSelectedMessage)
+						if (selectedMessage)
 						{
-							this.selectorMessageSelected(oSelectedMessage);
-							this.selectorMessageFocused(oSelectedMessage);
+							this.selectorMessageSelected(selectedMessage);
+							this.selectorMessageFocused(selectedMessage);
 						}
 					}
 
 				}
 
-				Utils.windowResize();
+				windowResize();
 			}
 		}
-	};
+	}
 
-	MessageUserStore.prototype.selectMessage = function (oMessage)
-	{
+	selectMessage(oMessage) {
 		if (oMessage)
 		{
 			this.message(this.staticMessage.populateByMessageListItem(oMessage));
-
 			this.populateMessageBody(this.message());
 		}
 		else
 		{
 			this.message(null);
 		}
-	};
+	}
 
-	MessageUserStore.prototype.selectMessageByFolderAndUid = function (sFolder, sUid)
-	{
+	selectMessageByFolderAndUid(sFolder, sUid) {
 		if (sFolder && sUid)
 		{
 			this.message(this.staticMessage.populateByMessageListItem(null));
@@ -772,10 +739,9 @@
 		{
 			this.message(null);
 		}
-	};
+	}
 
-	MessageUserStore.prototype.populateMessageBody = function (oMessage)
-	{
+	populateMessageBody(oMessage) {
 		if (oMessage)
 		{
 			if (Remote.message(this.onMessageResponse, oMessage.folderFullNameRaw, oMessage.uid))
@@ -783,165 +749,148 @@
 				this.messageCurrentLoading(true);
 			}
 		}
-	};
+	}
 
 	/**
 	 * @param {string} sResult
 	 * @param {AjaxJsonDefaultResponse} oData
 	 * @param {boolean} bCached
 	 */
-	MessageUserStore.prototype.onMessageResponse = function (sResult, oData, bCached)
-	{
+	onMessageResponse(sResult, oData, bCached) {
+
 		this.hideMessageBodies();
 
 		this.messageCurrentLoading(false);
 
-		if (Enums.StorageResultType.Success === sResult && oData && oData.Result)
+		if (StorageResultType.Success === sResult && oData && oData.Result)
 		{
 			this.setMessage(oData, bCached);
 		}
-		else if (Enums.StorageResultType.Unload === sResult)
+		else if (StorageResultType.Unload === sResult)
 		{
 			this.message(null);
 			this.messageError('');
 		}
-		else if (Enums.StorageResultType.Abort !== sResult)
+		else if (StorageResultType.Abort !== sResult)
 		{
 			this.message(null);
 			this.messageError((oData && oData.ErrorCode ?
-				Translator.getNotification(oData.ErrorCode) :
-				Translator.getNotification(Enums.Notification.UnknownError)));
+				getNotification(oData.ErrorCode) : getNotification(Notification.UnknownError)));
 		}
-	};
+	}
 
 	/**
-	 * @param {Array} aList
-	 * @return {string}
+	 * @param {Array} list
+	 * @returns {string}
 	 */
-	MessageUserStore.prototype.calculateMessageListHash = function (aList)
-	{
-		return _.map(aList, function (oMessage) {
-			return '' + oMessage.hash + '_' + oMessage.threadsLen() + '_' + oMessage.flagHash();
-		}).join('|');
-	};
+	calculateMessageListHash(list) {
+		return _.map(list, (message) => '' + message.hash + '_' + message.threadsLen() + '_' + message.flagHash()).join('|');
+	}
 
-	MessageUserStore.prototype.setMessageList = function (oData, bCached)
-	{
-		if (oData && oData.Result && 'Collection/MessageCollection' === oData.Result['@Object'] &&
-			oData.Result['@Collection'] && Utils.isArray(oData.Result['@Collection']))
+	setMessageList(data, cached) {
+		if (data && data.Result && 'Collection/MessageCollection' === data.Result['@Object'] &&
+			data.Result['@Collection'] && isArray(data.Result['@Collection']))
 		{
-			var
-				iIndex = 0,
-				iLen = 0,
-				iCount = 0,
-				iOffset = 0,
-				aList = [],
-				oJsonMessage = null,
-				oMessage = null,
-				oFolder = null,
-				iNewCount = 0,
-				iUtc = require('Common/Momentor').momentNowUnix(),
-				bUnreadCountChange = false
-			;
+			let
+				newCount = 0,
+				unreadCountChange = false;
 
-			iCount = Utils.pInt(oData.Result.MessageResultCount);
-			iOffset = Utils.pInt(oData.Result.Offset);
+			const
+				list = [],
+				utc = momentNowUnix(),
+				iCount = pInt(data.Result.MessageResultCount),
+				iOffset = pInt(data.Result.Offset);
 
-			oFolder = Cache.getFolderFromCacheList(
-				Utils.isNormal(oData.Result.Folder) ? oData.Result.Folder : '');
+			const folder = getFolderFromCacheList(isNormal(data.Result.Folder) ? data.Result.Folder : '');
 
-			if (oFolder && !bCached)
+			if (folder && !cached)
 			{
-				oFolder.interval = iUtc;
+				folder.interval = utc;
 
-				Cache.setFolderHash(oData.Result.Folder, oData.Result.FolderHash);
+				setFolderHash(data.Result.Folder, data.Result.FolderHash);
 
-				if (Utils.isNormal(oData.Result.MessageCount))
+				if (isNormal(data.Result.MessageCount))
 				{
-					oFolder.messageCountAll(oData.Result.MessageCount);
+					folder.messageCountAll(data.Result.MessageCount);
 				}
 
-				if (Utils.isNormal(oData.Result.MessageUnseenCount))
+				if (isNormal(data.Result.MessageUnseenCount))
 				{
-					if (Utils.pInt(oFolder.messageCountUnread()) !== Utils.pInt(oData.Result.MessageUnseenCount))
+					if (pInt(folder.messageCountUnread()) !== pInt(data.Result.MessageUnseenCount))
 					{
-						bUnreadCountChange = true;
+						unreadCountChange = true;
 					}
 
-					oFolder.messageCountUnread(oData.Result.MessageUnseenCount);
+					folder.messageCountUnread(data.Result.MessageUnseenCount);
 				}
 
-				this.initUidNextAndNewMessages(oFolder.fullNameRaw, oData.Result.UidNext, oData.Result.NewMessages);
+				this.initUidNextAndNewMessages(folder.fullNameRaw, data.Result.UidNext, data.Result.NewMessages);
 			}
 
-			if (bUnreadCountChange && oFolder)
+			if (unreadCountChange && folder)
 			{
-				Cache.clearMessageFlagsFromCacheByFolder(oFolder.fullNameRaw);
+				clearMessageFlagsFromCacheByFolder(folder.fullNameRaw);
 			}
 
-			for (iIndex = 0, iLen = oData.Result['@Collection'].length; iIndex < iLen; iIndex++)
-			{
-				oJsonMessage = oData.Result['@Collection'][iIndex];
-				if (oJsonMessage && 'Object/Message' === oJsonMessage['@Object'])
+			_.each(data.Result['@Collection'], (jsonMessage) => {
+				if (jsonMessage && 'Object/Message' === jsonMessage['@Object'])
 				{
-					oMessage = MessageModel.newInstanceFromJson(oJsonMessage);
-					if (oMessage)
+					const message = MessageModel.newInstanceFromJson(jsonMessage);
+					if (message)
 					{
-						if (Cache.hasNewMessageAndRemoveFromCache(oMessage.folderFullNameRaw, oMessage.uid) && 5 >= iNewCount)
+						if (hasNewMessageAndRemoveFromCache(message.folderFullNameRaw, message.uid) && 5 >= newCount)
 						{
-							iNewCount++;
-							oMessage.newForAnimation(true);
+							newCount += 1;
+							message.newForAnimation(true);
 						}
 
-						oMessage.deleted(false);
+						message.deleted(false);
 
-						if (bCached)
+						if (cached)
 						{
-							Cache.initMessageFlagsFromCache(oMessage);
+							initMessageFlagsFromCache(message);
 						}
 						else
 						{
-							Cache.storeMessageFlagsToCache(oMessage);
+							storeMessageFlagsToCache(message);
 						}
 
-						aList.push(oMessage);
+						list.push(message);
 					}
 				}
-			}
+			});
 
 			this.messageListCount(iCount);
-			this.messageListSearch(Utils.isNormal(oData.Result.Search) ? oData.Result.Search : '');
+			this.messageListSearch(isNormal(data.Result.Search) ? data.Result.Search : '');
 			this.messageListPage(window.Math.ceil((iOffset / SettingsStore.messagesPerPage()) + 1));
-			this.messageListThreadUid(Utils.isNormal(oData.Result.ThreadUid) ? Utils.pString(oData.Result.ThreadUid) : '');
+			this.messageListThreadUid(isNormal(data.Result.ThreadUid) ? pString(data.Result.ThreadUid) : '');
 
-			this.messageListEndFolder(Utils.isNormal(oData.Result.Folder) ? oData.Result.Folder : '');
+			this.messageListEndFolder(isNormal(data.Result.Folder) ? data.Result.Folder : '');
 			this.messageListEndSearch(this.messageListSearch());
 			this.messageListEndThreadUid(this.messageListThreadUid());
 			this.messageListEndPage(this.messageListPage());
 
 			this.messageListDisableAutoSelect(true);
 
-			this.messageList(aList);
+			this.messageList(list);
 			this.messageListIsNotCompleted(false);
 
-			Cache.clearNewMessageCache();
+			clearNewMessageCache();
 
-			if (oFolder && (bCached || bUnreadCountChange || SettingsStore.useThreads()))
+			if (folder && (cached || unreadCountChange || SettingsStore.useThreads()))
 			{
-				require('App/User').folderInformation(oFolder.fullNameRaw, aList);
+				getApp().folderInformation(folder.fullNameRaw, list);
 			}
 		}
 		else
 		{
 			this.messageListCount(0);
 			this.messageList([]);
-			this.messageListError(Translator.getNotification(
-				oData && oData.ErrorCode ? oData.ErrorCode : Enums.Notification.CantGetMessageList
+			this.messageListError(getNotification(
+				data && data.ErrorCode ? data.ErrorCode : Notification.CantGetMessageList
 			));
 		}
-	};
+	}
+}
 
-	module.exports = new MessageUserStore();
-
-}());
-
+export default new MessageUserStore();

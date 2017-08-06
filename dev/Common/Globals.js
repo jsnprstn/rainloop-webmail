@@ -1,297 +1,293 @@
 
 /* global RL_COMMUNITY */
 
-(function () {
+import window from 'window';
+import _ from '_';
+import $ from '$';
+import key from 'key';
+import ko from 'ko';
+import {KeyState} from 'Common/Enums';
 
-	'use strict';
+const $win = $(window);
+$win.__sizes = [0, 0];
 
-	var
-		Globals = {},
+export {$win};
 
-		window = require('window'),
-		_ = require('_'),
-		$ = require('$'),
-		ko = require('ko'),
-		key = require('key'),
+export const $doc = $(window.document);
 
-		Enums = require('Common/Enums')
-	;
+export const $html = $('html');
 
-	Globals.$win = $(window);
-	Globals.$doc = $(window.document);
-	Globals.$html = $('html');
-	Globals.$body = $('body');
-	Globals.$div = $('<div></div>');
+export const $body = $('body');
 
-	Globals.$win.__sizes = [0, 0];
+export const $div = $('<div></div>');
 
-	/**
-	 * @type {?}
-	 */
-	Globals.startMicrotime = (new window.Date()).getTime();
+export const $hcont = $('<div></div>');
+$hcont.attr('area', 'hidden').css({position: 'absolute', left: -5000}).appendTo($body);
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.community = RL_COMMUNITY;
+export const startMicrotime = (new window.Date()).getTime();
 
-	/**
-	 * @type {?}
-	 */
-	Globals.dropdownVisibility = ko.observable(false).extend({'rateLimit': 0});
+/**
+ * @type {boolean}
+ */
+export const community = RL_COMMUNITY;
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.useKeyboardShortcuts = ko.observable(true);
+/**
+ * @type {?}
+ */
+export const dropdownVisibility = ko.observable(false).extend({rateLimit: 0});
 
-	/**
-	 * @type {number}
-	 */
-	Globals.iAjaxErrorCount = 0;
+/**
+ * @type {boolean}
+ */
+export const useKeyboardShortcuts = ko.observable(true);
 
-	/**
-	 * @type {number}
-	 */
-	Globals.iTokenErrorCount = 0;
-
-	/**
-	 * @type {number}
-	 */
-	Globals.iMessageBodyCacheCount = 0;
-
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bUnload = false;
-
-	/**
-	 * @type {string}
-	 */
-	Globals.sUserAgent = 'navigator' in window && 'userAgent' in window.navigator &&
+/**
+ * @type {string}
+ */
+export const sUserAgent = 'navigator' in window && 'userAgent' in window.navigator &&
 		window.navigator.userAgent.toLowerCase() || '';
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bIE = Globals.sUserAgent.indexOf('msie') > -1;
+/**
+ * @type {boolean}
+ */
+export const bIE = -1 < sUserAgent.indexOf('msie');
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bChrome = Globals.sUserAgent.indexOf('chrome') > -1;
+/**
+ * @type {boolean}
+ */
+export const bChrome = -1 < sUserAgent.indexOf('chrome');
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bSafari = !Globals.bChrome && Globals.sUserAgent.indexOf('safari') > -1;
+/**
+ * @type {boolean}
+ */
+export const bSafari = !bChrome && -1 < sUserAgent.indexOf('safari');
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bMobileDevice =
-		/android/i.test(Globals.sUserAgent) ||
-		/iphone/i.test(Globals.sUserAgent) ||
-		/ipod/i.test(Globals.sUserAgent) ||
-		/ipad/i.test(Globals.sUserAgent) ||
-		/blackberry/i.test(Globals.sUserAgent)
-	;
+/**
+ * @type {boolean}
+ */
+export const bMobileDevice =
+	(/android/i).test(sUserAgent) ||
+	(/iphone/i).test(sUserAgent) ||
+	(/ipod/i).test(sUserAgent) ||
+	(/ipad/i).test(sUserAgent) ||
+	(/blackberry/i).test(sUserAgent);
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bDisableNanoScroll = Globals.bMobileDevice;
+/**
+ * @type {boolean}
+ */
+export const bDisableNanoScroll = bMobileDevice;
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bAllowPdfPreview = !Globals.bMobileDevice;
+/**
+ * @type {boolean}
+ */
+export const bAnimationSupported = !bMobileDevice && $html.hasClass('csstransitions') && $html.hasClass('cssanimations');
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bAnimationSupported = !Globals.bMobileDevice && Globals.$html.hasClass('csstransitions') &&
-		 Globals.$html.hasClass('cssanimations');
+/**
+ * @type {boolean}
+ */
+export const bXMLHttpRequestSupported = !!window.XMLHttpRequest;
 
-	/**
-	 * @type {boolean}
-	 */
-	Globals.bXMLHttpRequestSupported = !!window.XMLHttpRequest;
+/**
+ * @type {boolean}
+ */
+export const bIsHttps = window.document && window.document.location ? 'https:' === window.document.location.protocol : false;
 
-	/**
-	 * @type {*}
-	 */
-	Globals.__APP__ = null;
+/**
+ * @type {Object}
+ */
+export const htmlEditorDefaultConfig = {
+	'title': false,
+	'stylesSet': false,
+	'customConfig': '',
+	'contentsCss': '',
+	'toolbarGroups': [
+		{name: 'spec'},
+		{name: 'styles'},
+		{name: 'basicstyles', groups: ['basicstyles', 'cleanup', 'bidi']},
+		{name: 'colors'},
+		bMobileDevice ? {} : {name: 'paragraph', groups: ['list', 'indent', 'blocks', 'align']},
+		{name: 'links'},
+		{name: 'insert'},
+		{name: 'document', groups: ['mode', 'document', 'doctools']},
+		{name: 'others'}
+	],
 
-	/**
-	 * @type {Object}
-	 */
-	Globals.oHtmlEditorDefaultConfig = {
-		'title': false,
-		'stylesSet': false,
-		'customConfig': '',
-		'contentsCss': '',
-		'toolbarGroups': [
-			{name: 'spec'},
-			{name: 'styles'},
-			{name: 'basicstyles', groups: ['basicstyles', 'cleanup', 'bidi']},
-			{name: 'colors'},
-			{name: 'paragraph', groups: ['list', 'indent', 'blocks', 'align']},
-			{name: 'links'},
-			{name: 'insert'},
-			{name: 'document', groups: ['mode', 'document', 'doctools']},
-			{name: 'others'}
-		],
+	'removePlugins': 'liststyle',
+	'removeButtons': 'Format,Undo,Redo,Cut,Copy,Paste,Anchor,Strike,Subscript,Superscript,Image,SelectAll,Source',
+	'removeDialogTabs': 'link:advanced;link:target;image:advanced;images:advanced',
 
-		'removePlugins': 'liststyle',
-		'removeButtons': 'Format,Undo,Redo,Cut,Copy,Paste,Anchor,Strike,Subscript,Superscript,Image,SelectAll,Source',
-		'removeDialogTabs': 'link:advanced;link:target;image:advanced;images:advanced',
+	'extraPlugins': 'plain,signature',
 
-		'extraPlugins': 'plain,signature',
+	'allowedContent': true,
+	'extraAllowedContent': true,
 
-		'allowedContent': true,
-		'extraAllowedContent': true,
+	'fillEmptyBlocks': false,
+	'ignoreEmptyParagraph': true,
+	'disableNativeSpellChecker': false,
 
-		'fillEmptyBlocks': false,
-		'ignoreEmptyParagraph': true,
+	'colorButton_enableAutomatic': false,
+	'colorButton_enableMore': true,
 
-		'font_defaultLabel': 'Arial',
-		'fontSize_defaultLabel': '13',
-		'fontSize_sizes': '10/10px;12/12px;13/13px;14/14px;16/16px;18/18px;20/20px;24/24px;28/28px;36/36px;48/48px'
-	};
+	'font_defaultLabel': 'Arial',
+	'fontSize_defaultLabel': '13',
+	'fontSize_sizes': '10/10px;12/12px;13/13px;14/14px;16/16px;18/18px;20/20px;24/24px;28/28px;36/36px;48/48px'
+};
 
-	/**
-	 * @type {Object}
-	 */
-	Globals.oHtmlEditorLangsMap = {
-		'bg': 'bg',
-		'de': 'de',
-		'es': 'es',
-		'fr': 'fr',
-		'hu': 'hu',
-		'is': 'is',
-		'it': 'it',
-		'ja': 'ja',
-		'ja-jp': 'ja',
-		'ko': 'ko',
-		'ko-kr': 'ko',
-		'lt': 'lt',
-		'lv': 'lv',
-		'nl': 'nl',
-		'no': 'no',
-		'pl': 'pl',
-		'pt': 'pt',
-		'pt-pt': 'pt',
-		'pt-br': 'pt-br',
-		'ro': 'ro',
-		'ru': 'ru',
-		'sk': 'sk',
-		'sv': 'sv',
-		'tr': 'tr',
-		'ua': 'ru',
-		'zh': 'zh',
-		'zh-tw': 'zh',
-		'zh-cn': 'zh-cn'
-	};
+/**
+ * @type {Object}
+ */
+export const htmlEditorLangsMap = {
+	'ar_sa': 'ar-sa',
+	'bg_bg': 'bg',
+	'cs_CZ': 'cs',
+	'de_de': 'de',
+	'el_gr': 'el',
+	'es_es': 'es',
+	'et_ee': 'et',
+	'fr_fr': 'fr',
+	'hu_hu': 'hu',
+	'is_is': 'is',
+	'it_it': 'it',
+	'ja_jp': 'ja',
+	'ko_kr': 'ko',
+	'lt_lt': 'lt',
+	'lv_lv': 'lv',
+	'fa_ir': 'fa',
+	'nb_no': 'nb',
+	'nl_nl': 'nl',
+	'pl_pl': 'pl',
+	'pt_br': 'pt-br',
+	'pt_pt': 'pt',
+	'ro_ro': 'ro',
+	'ru_ru': 'ru',
+	'sk_sk': 'sk',
+	'sl_si': 'sl',
+	'sv_se': 'sv',
+	'tr_tr': 'tr',
+	'uk_ua': 'uk',
+	'zh_cn': 'zh-cn',
+	'zh_tw': 'zh'
+};
 
-	if (Globals.bAllowPdfPreview && window.navigator && window.navigator.mimeTypes)
+/**
+ * @type {boolean}
+ */
+let bAllowPdfPreview = !bMobileDevice;
+
+if (bAllowPdfPreview && window.navigator && window.navigator.mimeTypes)
+{
+	bAllowPdfPreview = !!_.find(window.navigator.mimeTypes, (type) => type && 'application/pdf' === type.type);
+
+	if (!bAllowPdfPreview)
 	{
-		Globals.bAllowPdfPreview = !!_.find(window.navigator.mimeTypes, function (oType) {
-			return oType && 'application/pdf' === oType.type;
-		});
+		bAllowPdfPreview = 'undefined' !== typeof window.navigator.mimeTypes['application/pdf'];
 	}
+}
 
-	Globals.aBootstrapDropdowns = [];
+export {bAllowPdfPreview};
 
-	Globals.aViewModels = {
-		'settings': [],
-		'settings-removed': [],
-		'settings-disabled': []
-	};
+export const VIEW_MODELS = {
+	settings: [],
+	'settings-removed': [],
+	'settings-disabled': []
+};
 
-	Globals.leftPanelDisabled = ko.observable(false);
-	Globals.leftPanelType = ko.observable('');
+export const moveAction = ko.observable(false);
+export const leftPanelDisabled = ko.observable(false);
+export const leftPanelType = ko.observable('');
+export const leftPanelWidth = ko.observable(0);
 
-	// popups
-	Globals.popupVisibilityNames = ko.observableArray([]);
+leftPanelDisabled.subscribe((value) => {
+	if (value && moveAction()) {
+		moveAction(false);
+	}
+});
 
-	Globals.popupVisibility = ko.computed(function () {
-		return 0 < Globals.popupVisibilityNames().length;
-	}, this);
+moveAction.subscribe((value) => {
+	if (value && leftPanelDisabled()) {
+		leftPanelDisabled(false);
+	}
+});
 
-	Globals.popupVisibility.subscribe(function (bValue) {
-		Globals.$html.toggleClass('rl-modal', bValue);
-	});
+// popups
+export const popupVisibilityNames = ko.observableArray([]);
 
-	// keys
-	Globals.keyScopeReal = ko.observable(Enums.KeyState.All);
-	Globals.keyScopeFake = ko.observable(Enums.KeyState.All);
+export const popupVisibility = ko.computed(() => 0 < popupVisibilityNames().length);
 
-	Globals.keyScope = ko.computed({
-		'owner': this,
-		'read': function () {
-			return Globals.keyScopeFake();
-		},
-		'write': function (sValue) {
+popupVisibility.subscribe((bValue) => {
+	$html.toggleClass('rl-modal', bValue);
+});
 
-			if (Enums.KeyState.Menu !== sValue)
+// keys
+export const keyScopeReal = ko.observable(KeyState.All);
+export const keyScopeFake = ko.observable(KeyState.All);
+
+export const keyScope = ko.computed({
+	read: () => keyScopeFake(),
+	write: (value) => {
+
+		if (KeyState.Menu !== value)
+		{
+			if (KeyState.Compose === value)
 			{
-				if (Enums.KeyState.Compose === sValue)
-				{
-					// disableKeyFilter
-					key.filter = function () {
-						return Globals.useKeyboardShortcuts();
-					};
-				}
-				else
-				{
-					// restoreKeyFilter
-					key.filter = function (event) {
+				// disableKeyFilter
+				key.filter = () => useKeyboardShortcuts();
+			}
+			else
+			{
+				// restoreKeyFilter
+				key.filter = (event) => {
 
-						if (Globals.useKeyboardShortcuts())
-						{
-							var
-								oElement = event.target || event.srcElement,
-								sTagName = oElement ? oElement.tagName : ''
-							;
+					if (useKeyboardShortcuts())
+					{
+						const
+							el = event.target || event.srcElement,
+							tagName = el ? el.tagName.toUpperCase() : '';
 
-							sTagName = sTagName.toUpperCase();
-							return !(sTagName === 'INPUT' || sTagName === 'SELECT' || sTagName === 'TEXTAREA' ||
-								(oElement && sTagName === 'DIV' && ('editorHtmlArea' === oElement.className || 'true' === '' + oElement.contentEditable))
-							);
-						}
+						return !('INPUT' === tagName || 'SELECT' === tagName || 'TEXTAREA' === tagName ||
+							(el && 'DIV' === tagName && ('editorHtmlArea' === el.className || 'true' === '' + el.contentEditable))
+						);
+					}
 
-						return false;
-					};
-				}
-
-				Globals.keyScopeFake(sValue);
-				if (Globals.dropdownVisibility())
-				{
-					sValue = Enums.KeyState.Menu;
-				}
+					return false;
+				};
 			}
 
-			Globals.keyScopeReal(sValue);
+			keyScopeFake(value);
+			if (dropdownVisibility())
+			{
+				value = KeyState.Menu;
+			}
 		}
-	});
 
-	Globals.keyScopeReal.subscribe(function (sValue) {
-//		window.console.log('keyScope=' + sValue); // DEBUG
-		key.setScope(sValue);
-	});
+		keyScopeReal(value);
+	}
+});
 
-	Globals.dropdownVisibility.subscribe(function (bValue) {
-		if (bValue)
-		{
-			Globals.keyScope(Enums.KeyState.Menu);
-		}
-		else if (Enums.KeyState.Menu === key.getScope())
-		{
-			Globals.keyScope(Globals.keyScopeFake());
-		}
-	});
+keyScopeReal.subscribe((value) => {
+//	window.console.log('keyScope=' + sValue); // DEBUG
+	key.setScope(value);
+});
 
-	module.exports = Globals;
+dropdownVisibility.subscribe((value) => {
+	if (value)
+	{
+		keyScope(KeyState.Menu);
+	}
+	else if (KeyState.Menu === key.getScope())
+	{
+		keyScope(keyScopeFake());
+	}
+});
 
-}());
+/**
+ * @type {*}
+ */
+export const data = {
+	__APP__: null,
+	iAjaxErrorCount: 0,
+	iTokenErrorCount: 0,
+	aBootstrapDropdowns: [],
+	iMessageBodyCacheCount: 0,
+	bUnload: false
+};

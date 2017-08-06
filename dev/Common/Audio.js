@@ -1,39 +1,26 @@
 
-(function () {
+import window from 'window';
+import {bMobileDevice, bSafari} from 'Common/Globals';
+import * as Links from 'Common/Links';
+import * as Events from 'Common/Events';
+import {trim} from 'Common/Utils';
 
-	'use strict';
+class Audio
+{
+	notificator = null;
+	player = null;
 
-	var
-		window = require('window'),
-		$ = require('$'),
+	supported = false;
+	supportedMp3 = false;
+	supportedOgg = false;
+	supportedWav = false;
+	supportedNotification = false;
 
-		Globals = require('Common/Globals'),
-		Utils = require('Common/Utils'),
-		Links = require('Common/Links'),
-		Events = require('Common/Events')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function Audio()
-	{
-		var self = this;
-
-//		this.userMedia = window.navigator.getUserMedia || window.navigator.webkitGetUserMedia ||
-//			window.navigator.mozGetUserMedia || window.navigator.msGetUserMedia;
-//
-//		this.audioContext = window.AudioContext || window.webkitAudioContext;
-//		if (!this.audioContext || !window.Float32Array)
-//		{
-//			this.audioContext = null;
-//			this.userMedia = null;
-//		}
-
+	constructor() {
 		this.player = this.createNewObject();
 
-		this.supported = !Globals.bMobileDevice && !Globals.bSafari && !!this.player && !!this.player.play;
-		if (this.supported &&  this.player.canPlayType)
+		this.supported = !bMobileDevice && !bSafari && !!this.player && !!this.player.play;
+		if (this.supported && this.player && this.player.canPlayType)
 		{
 			this.supportedMp3 = '' !== this.player.canPlayType('audio/mpeg;').replace(/no/, '');
 			this.supportedWav = '' !== this.player.canPlayType('audio/wav; codecs="1"').replace(/no/, '');
@@ -50,37 +37,19 @@
 			this.supportedNotification = false;
 		}
 
-		if (this.supported)
+		if (this.supported && this.player)
 		{
-			$(this.player).on('ended error', function () {
-				self.stop();
-			});
+			const stopFn = () => this.stop();
 
-			Events.sub('audio.api.stop', function () {
-				self.stop();
-			});
+			this.player.addEventListener('ended', stopFn);
+			this.player.addEventListener('error', stopFn);
+
+			Events.sub('audio.api.stop', stopFn);
 		}
 	}
 
-	Audio.prototype.player = null;
-	Audio.prototype.notificator = null;
-
-	Audio.prototype.supported = false;
-	Audio.prototype.supportedMp3 = false;
-	Audio.prototype.supportedOgg = false;
-	Audio.prototype.supportedWav = false;
-	Audio.prototype.supportedNotification = false;
-
-//	Audio.prototype.record = function ()
-//	{
-//		this.getUserMedia({audio:true}, function () {
-//		}, function(oError) {
-//		});
-//	};
-
-	Audio.prototype.createNewObject = function ()
-	{
-		var player = window.Audio ? new window.Audio() : null;
+	createNewObject() {
+		const player = window.Audio ? new window.Audio() : null;
 		if (player && player.canPlayType && player.pause && player.play)
 		{
 			player.preload = 'none';
@@ -90,80 +59,70 @@
 		}
 
 		return player;
-	};
+	}
 
-	Audio.prototype.paused = function ()
-	{
+	paused() {
 		return this.supported ? !!this.player.paused : true;
-	};
+	}
 
-	Audio.prototype.stop = function ()
-	{
+	stop() {
 		if (this.supported && this.player.pause)
 		{
 			this.player.pause();
 		}
 
 		Events.pub('audio.stop');
-	};
+	}
 
-	Audio.prototype.pause = Audio.prototype.stop;
+	pause() {
+		this.stop();
+	}
 
-	Audio.prototype.clearName = function (sName, sExt)
-	{
-		sExt = sExt || '';
-		sName = Utils.isUnd(sName) ? '' : Utils.trim(sName);
-		if (sExt && '.' + sExt === sName.toLowerCase().substr((sExt.length + 1) * -1))
+	clearName(name = '', ext = '') {
+
+		name = trim(name);
+		if (ext && '.' + ext === name.toLowerCase().substr((ext.length + 1) * -1))
 		{
-			sName = Utils.trim(sName.substr(0, sName.length - 4));
+			name = trim(name.substr(0, name.length - 4));
 		}
 
-		if ('' === sName)
-		{
-			sName = 'audio';
-		}
+		return '' === name ? 'audio' : name;
+	}
 
-		return sName;
-	};
-
-	Audio.prototype.playMp3 = function (sUrl, sName)
-	{
+	playMp3(url, name) {
 		if (this.supported && this.supportedMp3)
 		{
-			this.player.src = sUrl;
+			this.player.src = url;
 			this.player.play();
 
-			Events.pub('audio.start', [this.clearName(sName, 'mp3'), 'mp3']);
+			Events.pub('audio.start', [this.clearName(name, 'mp3'), 'mp3']);
 		}
-	};
+	}
 
-	Audio.prototype.playOgg = function (sUrl, sName)
-	{
+	playOgg(url, name) {
 		if (this.supported && this.supportedOgg)
 		{
-			this.player.src = sUrl;
+			this.player.src = url;
 			this.player.play();
 
-			sName = this.clearName(sName, 'oga');
-			sName = this.clearName(sName, 'ogg');
+			name = this.clearName(name, 'oga');
+			name = this.clearName(name, 'ogg');
 
-			Events.pub('audio.start', [sName, 'ogg']);
+			Events.pub('audio.start', [name, 'ogg']);
 		}
-	};
+	}
 
-	Audio.prototype.playWav = function (sUrl, sName)
-	{
+	playWav(url, name) {
 		if (this.supported && this.supportedWav)
 		{
-			this.player.src = sUrl;
+			this.player.src = url;
 			this.player.play();
 
-			Events.pub('audio.start', [this.clearName(sName, 'wav'), 'wav']);
+			Events.pub('audio.start', [this.clearName(name, 'wav'), 'wav']);
 		}
-	};
+	}
 
-	Audio.prototype.playNotification = function ()
-	{
+	playNotification() {
 		if (this.supported && this.supportedMp3)
 		{
 			if (!this.notificator)
@@ -177,8 +136,7 @@
 				this.notificator.play();
 			}
 		}
-	};
+	}
+}
 
-	module.exports = new Audio();
-
-}());
+export default new Audio();

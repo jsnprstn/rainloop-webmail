@@ -50,7 +50,7 @@ class Service
 		if ($this->oActions->Config()->Get('labs', 'force_https', false) && !$this->oHttp->IsSecure())
 		{
 			@\header('Location: https://'.$this->oHttp->GetHost(false, false).$this->oHttp->GetUrl(), true);
-			exit();
+			exit(0);
 		}
 
 		$this->localHandle();
@@ -110,7 +110,8 @@ class Service
 		$sAdminPanelHost = $this->oActions->Config()->Get('security', 'admin_panel_host', '');
 		if (empty($sAdminPanelHost))
 		{
-			$bAdmin = !empty($aPaths[0]) && \in_array(\strtolower($aPaths[0]), array('admin', 'cp'));
+			$sAdminPanelKey = \strtolower($this->oActions->Config()->Get('security', 'admin_panel_key', 'admin'));
+			$bAdmin = !empty($aPaths[0]) && \strtolower($aPaths[0]) === $sAdminPanelKey;
 		}
 		else if (empty($aPaths[0]) &&
 			\MailSo\Base\Utils::StrToLowerIfAscii($sAdminPanelHost) === \MailSo\Base\Utils::StrToLowerIfAscii($this->oHttp->GetHost()))
@@ -132,19 +133,45 @@ class Service
 		}
 
 		$bIndex = true;
-		if (0 < \count($aPaths) && !empty($aPaths[0]) && !$bAdmin && 'index' !== $aPaths[0])
+		if (0 < \count($aPaths) && !empty($aPaths[0]) && !$bAdmin && 'index' !== \strtolower($aPaths[0]))
 		{
 			$bIndex = false;
-			$sMethodName = 'Service'.$aPaths[0];
+			$sMethodName = 'Service'.\preg_replace('/@.+$/', '', $aPaths[0]);
+			$sMethodExtra = 0 < \strpos($aPaths[0], '@') ? \preg_replace('/^[^@]+@/', '', $aPaths[0]) : '';
+
 			if (\method_exists($this->oServiceActions, $sMethodName) &&
 				\is_callable(array($this->oServiceActions, $sMethodName)))
 			{
 				$this->oServiceActions->SetQuery($sQuery)->SetPaths($aPaths);
-				$sResult = \call_user_func(array($this->oServiceActions, $sMethodName));
+				$sResult = \call_user_func(array($this->oServiceActions, $sMethodName), $sMethodExtra);
 			}
 			else if (!$this->oActions->Plugins()->RunAdditionalPart($aPaths[0], $aPaths))
 			{
 				$bIndex = true;
+			}
+		}
+
+		$bMobile = false;
+		$bMobileDevice = false;
+
+		if ($this->oActions->Config()->Get('labs', 'allow_mobile_version', false))
+		{
+			$oMobileDetect = new \Detection\MobileDetect();
+			$bMobileDevice = $oMobileDetect->isMobile() && !$oMobileDetect->isTablet();
+
+			$bMobile = (0 < \count($aPaths) && !empty($aPaths[0]) && 'mobile' === \strtolower($aPaths[0]));
+		}
+
+		if ($bIndex && !$bMobile)
+		{
+			$iMobileKey = (int) \RainLoop\Utils::GetCookie(\RainLoop\Actions::RL_SKIP_MOBILE_KEY, 0);
+			if (1 !== $iMobileKey)
+			{
+				if ($bMobileDevice)
+				{
+					$this->oActions->Location('./?/Mobile/');
+					return $this;
+				}
 			}
 		}
 
@@ -166,10 +193,10 @@ class Service
 				return $this;
 			}
 
-			$aTemplateParameters = $this->indexTemplateParameters($bAdmin);
+			$aTemplateParameters = $this->indexTemplateParameters($bAdmin, $bMobile, $bMobileDevice);
 
 			$sCacheFileName = '';
-			if ($this->oActions->Config()->Get('labs', 'cache_system_data', true))
+			if ($this->oActions->Config()->Get('labs', 'cache_system_data', true) && !empty($aTemplateParameters['{{BaseHash}}']))
 			{
 				$sCacheFileName = 'TMPL:'.$aTemplateParameters['{{BaseHash}}'];
 				$sResult = $this->oActions->Cacher()->Get($sCacheFileName);
@@ -192,24 +219,29 @@ class Service
 			}
 
 			$sResult .= '<!--';
-			$sResult .= ' [version:'.APP_VERSION;
+			$sResult .= '[time:'.\substr(\microtime(true) - APP_START, 0, 6);
 
+//			$sResult .= '][version:'.APP_VERSION;
 			if ($this->oActions->IsOpen())
 			{
 				$sResult .= '][AGPLv3';
 			}
 
-			$sResult .= '][time:'.\substr(\microtime(true) - APP_START, 0, 6);
 			$sResult .= '][cached:'.($bCached ? 'true' : 'false');
 //			$sResult .= '][hash:'.$aTemplateParameters['{{BaseHash}}'];
 //			$sResult .= '][session:'.\md5(\RainLoop\Utils::GetShortToken());
 
-			if (\RainLoop\Utils::IsOwnCloud())
+			if ($bMobile)
 			{
-				$sResult .= '][owncloud:true';
+				$sResult .= '][mobile:true';
 			}
 
-			$sResult .= '] //-->';
+			if (\RainLoop\Utils::IsOwnCloud())
+			{
+				$sResult .= '][cloud:true';
+			}
+
+			$sResult .= ']-->';
 		}
 
 		// Output result
@@ -221,62 +253,67 @@ class Service
 	}
 
 	/**
+	 * @param string $sPath
+	 *
+	 * @return string
+	 */
+	private function staticPath($sPath)
+	{
+		return $this->oActions->StaticPath($sPath);
+	}
+
+	/**
 	 * @param bool $bAdmin = false
+	 * @param bool $bMobile = false
+	 * @param bool $bMobileDevice = false
 	 *
 	 * @return array
 	 */
-	private function indexTemplateParameters($bAdmin = false)
+	private function indexTemplateParameters($bAdmin = false, $bMobile = false, $bMobileDevice = false)
 	{
 		$sLanguage = 'en';
 		$sTheme = 'Default';
 
-		list($sLanguage, $sTheme) = $this->oActions->GetLanguageAndTheme($bAdmin);
+		list($sLanguage, $sTheme) = $this->oActions->GetLanguageAndTheme($bAdmin, $bMobile);
 
 		$bAppJsDebug = !!$this->oActions->Config()->Get('labs', 'use_app_debug_js', false);
 		$bAppCssDebug = !!$this->oActions->Config()->Get('labs', 'use_app_debug_css', false);
 
-		$sStaticPrefix = \RainLoop\Utils::WebStaticPath();
+		$sFaviconUrl = (string) $this->oActions->Config()->Get('webmail', 'favicon_url', '');
 
-		$aData = array(
-			'Language' => $sLanguage,
-			'Theme' => $sTheme,
-			'FaviconIcoLink' => $sStaticPrefix.'favicon.ico',
-			'FaviconPngLink' => $sStaticPrefix.'favicon.png',
-			'AppleTouchLink' => $sStaticPrefix.'apple-touch-icon.png',
-			'AppCssLink' => $sStaticPrefix.'css/app'.($bAppCssDebug ? '' : '.min').'.css',
-			'BootJsLink' => $sStaticPrefix.'js/min/boot.js',
-			'ComponentsJsLink' => $sStaticPrefix.'js/'.($bAppJsDebug ? '' : 'min/').'components.js',
-			'LibJsLink' => $sStaticPrefix.'js/min/libs.js',
-			'EditorJsLink' => $sStaticPrefix.'ckeditor/ckeditor.js',
-			'OpenPgpJsLink' => $sStaticPrefix.'js/min/openpgp.min.js',
-			'AppJsCommonLink' => $sStaticPrefix.'js/'.($bAppJsDebug ? '' : 'min/').'common.js',
-			'AppJsLink' => $sStaticPrefix.'js/'.($bAppJsDebug ? '' : 'min/').($bAdmin ? 'admin' : 'app').'.js'
+		$sFaviconPngLink = $sFaviconUrl ? $sFaviconUrl : $this->staticPath('apple-touch-icon.png');
+		$sAppleTouchLink = $sFaviconUrl ? '' : $this->staticPath('apple-touch-icon.png');
+
+		$sContentSecurityPolicy = $this->oActions->Config()->Get('security', 'content_security_policy', '');
+
+		$aTemplateParameters = array(
+			'{{BaseAppFaviconPngLinkTag}}' => $sFaviconPngLink ? '<link type="image/png" rel="shortcut icon" href="'.$sFaviconPngLink.'" />' : '',
+			'{{BaseAppFaviconTouchLinkTag}}' => $sAppleTouchLink ? '<link type="image/png" rel="apple-touch-icon" href="'.$sAppleTouchLink.'" />' : '',
+			'{{BaseAppMainCssLink}}' => $this->staticPath('css/app'.($bAppCssDebug ? '' : '.min').'.css'),
+			'{{BaseAppThemeCssLink}}' => $this->oActions->ThemeLink($sTheme, $bAdmin),
+			'{{BaseAppBootScriptLink}}' => $this->staticPath('js/'.($bAppJsDebug ? '' : 'min/').'boot'.($bAppJsDebug ? '' : '.min').'.js'),
+			'{{BaseViewport}}' => $bMobile ? 'width=device-width,initial-scale=1,user-scalable=no' : 'width=950,maximum-scale=2',
+			'{{BaseContentSecurityPolicy}}' => $sContentSecurityPolicy ?
+				'<meta http-equiv="Content-Security-Policy" content="'.$sContentSecurityPolicy.'" />' : '',
+			'{{BaseDir}}' => false && \in_array($sLanguage, array('ar', 'he', 'ur')) ? 'rtl' : 'ltr',
+			'{{BaseAppManifestLink}}' => $this->staticPath('manifest.json')
 		);
 
-		$aTemplateParameters =  array(
-			'{{BaseAppDataScriptLink}}' => ($bAdmin ? './?/AdminAppData/' : './?/AppData/'),
-			'{{BaseAppFaviconIcoFile}}' => $aData['FaviconIcoLink'],
-			'{{BaseAppFaviconPngFile}}' => $aData['FaviconPngLink'],
-			'{{BaseAppAppleTouchFile}}' => $aData['AppleTouchLink'],
-			'{{BaseAppMainCssLink}}' => $aData['AppCssLink'],
-			'{{BaseAppBootScriptLink}}' => $aData['BootJsLink'],
-			'{{BaseAppComponentsScriptLink}}' => $aData['ComponentsJsLink'],
-			'{{BaseAppLibsScriptLink}}' => $aData['LibJsLink'],
-			'{{BaseAppEditorScriptLink}}' => $aData['EditorJsLink'],
-			'{{BaseAppOpenPgpScriptLink}}' => $aData['OpenPgpJsLink'],
-			'{{BaseAppMainCommonScriptLink}}' => $aData['AppJsCommonLink'],
-			'{{BaseAppMainScriptLink}}' => $aData['AppJsLink'],
-			'{{BaseVersion}}' => APP_VERSION,
-			'{{BaseDir}}' => 'ltr'
-//			'{{BaseDir}}' => \in_array($aData['Language'], array('ar', 'he', 'ur')) ? 'rtl' : 'ltr'
-		);
+		$aTemplateParameters['{{RainloopBootData}}'] = \json_encode(array(
+			'admin' => $bAdmin,
+			'language' => $sLanguage,
+			'theme' => $sTheme,
+			'mobile' => $bMobile,
+			'mobileDevice' => $bMobileDevice
+		));
 
 		$aTemplateParameters['{{BaseHash}}'] = \md5(
 			\implode('~', array(
 				$bAdmin ? '1' : '0',
 				\md5($this->oActions->Config()->Get('cache', 'index', '')),
 				$this->oActions->Plugins()->Hash(),
-				\RainLoop\Utils::WebVersionPath(), APP_VERSION
+				\RainLoop\Utils::WebVersionPath(),
+				APP_VERSION,
 			)).
 			\implode('~', $aTemplateParameters)
 		);

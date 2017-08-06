@@ -1,123 +1,99 @@
 
-(function () {
+import {isNonEmptyArray, isUnd} from 'Common/Utils';
+import {EmailModel} from 'Model/Email';
 
-	'use strict';
+/**
+ * @param {Array.<EmailModel>} emails
+ * @param {boolean=} friendlyView = false
+ * @param {boolean=} wrapWithLink = false
+ * @returns {string}
+ */
+export function emailArrayToString(emails, friendlyView = false, wrapWithLink = false) {
+	let
+		index = 0,
+		len = 0;
 
-	var
-		Utils = require('Common/Utils'),
-
-		EmailModel = require('Model/Email')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function MessageHelper() {}
-
-	/**
-	 * @param {Array.<EmailModel>} aEmail
-	 * @param {boolean=} bFriendlyView
-	 * @param {boolean=} bWrapWithLink = false
-	 * @return {string}
-	 */
-	MessageHelper.prototype.emailArrayToString = function (aEmail, bFriendlyView, bWrapWithLink)
+	const result = [];
+	if (isNonEmptyArray(emails))
 	{
-		var
-			aResult = [],
-			iIndex = 0,
-			iLen = 0
-		;
-
-		if (Utils.isNonEmptyArray(aEmail))
+		for (len = emails.length; index < len; index++)
 		{
-			for (iIndex = 0, iLen = aEmail.length; iIndex < iLen; iIndex++)
+			result.push(emails[index].toLine(friendlyView, wrapWithLink));
+		}
+	}
+
+	return result.join(', ');
+}
+
+/**
+ * @param {Array.<EmailModel>} emails
+ * @returns {string}
+ */
+export function emailArrayToStringClear(emails) {
+	let
+		index = 0,
+		len = 0;
+
+	const result = [];
+	if (isNonEmptyArray(emails))
+	{
+		for (len = emails.length; index < len; index++)
+		{
+			if (emails[index] && emails[index].email && '' !== emails[index].name)
 			{
-				aResult.push(aEmail[iIndex].toLine(bFriendlyView, bWrapWithLink));
+				result.push(emails[index].email);
 			}
 		}
+	}
 
-		return aResult.join(', ');
-	};
+	return result.join(', ');
+}
 
-	/**
-	 * @param {Array.<EmailModel>} aEmails
-	 * @return {string}
-	 */
-	MessageHelper.prototype.emailArrayToStringClear = function (aEmails)
+/**
+ * @param {?Array} json
+ * @returns {Array.<EmailModel>}
+ */
+export function emailArrayFromJson(json) {
+	let
+		index = 0,
+		len = 0,
+		email = null;
+
+	const result = [];
+	if (isNonEmptyArray(json))
 	{
-		var
-			aResult = [],
-			iIndex = 0,
-			iLen = 0
-			;
-
-		if (Utils.isNonEmptyArray(aEmails))
+		for (index = 0, len = json.length; index < len; index++)
 		{
-			for (iIndex = 0, iLen = aEmails.length; iIndex < iLen; iIndex++)
+			email = EmailModel.newInstanceFromJson(json[index]);
+			if (email)
 			{
-				if (aEmails[iIndex] && aEmails[iIndex].email && '' !== aEmails[iIndex].name)
-				{
-					aResult.push(aEmails[iIndex].email);
-				}
+				result.push(email);
 			}
 		}
+	}
 
-		return aResult.join(', ');
-	};
+	return result;
+}
 
-	/**
-	 * @param {?Array} aJson
-	 * @return {Array.<EmailModel>}
-	 */
-	MessageHelper.prototype.emailArrayFromJson = function (aJson)
+/**
+ * @param {Array.<EmailModel>} inputEmails
+ * @param {Object} unic
+ * @param {Array} localEmails
+ */
+export function replyHelper(inputEmails, unic, localEmails) {
+
+	if (inputEmails && 0 < inputEmails.length)
 	{
-		var
-			iIndex = 0,
-			iLen = 0,
-			oEmailModel = null,
-			aResult = []
-			;
+		let index = 0;
+		const len = inputEmails.length;
 
-		if (Utils.isNonEmptyArray(aJson))
+		for (; index < len; index++)
 		{
-			for (iIndex = 0, iLen = aJson.length; iIndex < iLen; iIndex++)
+			if (isUnd(unic[inputEmails[index].email]))
 			{
-				oEmailModel = EmailModel.newInstanceFromJson(aJson[iIndex]);
-				if (oEmailModel)
-				{
-					aResult.push(oEmailModel);
-				}
+				unic[inputEmails[index].email] = true;
+				localEmails.push(inputEmails[index]);
 			}
 		}
-
-		return aResult;
-	};
-
-	/**
-	 * @param {Array.<EmailModel>} aInputEmails
-	 * @param {Object} oUnic
-	 * @param {Array} aLocalEmails
-	 */
-	MessageHelper.prototype.replyHelper = function (aInputEmails, oUnic, aLocalEmails)
-	{
-		if (aInputEmails && 0 < aInputEmails.length)
-		{
-			var
-				iIndex = 0,
-				iLen = aInputEmails.length
-			;
-
-			for (; iIndex < iLen; iIndex++)
-			{
-				if (Utils.isUnd(oUnic[aInputEmails[iIndex].email]))
-				{
-					oUnic[aInputEmails[iIndex].email] = true;
-					aLocalEmails.push(aInputEmails[iIndex]);
-				}
-			}
-		}
-	};
-
-	module.exports = new MessageHelper();
-
-}());
+	}
+}

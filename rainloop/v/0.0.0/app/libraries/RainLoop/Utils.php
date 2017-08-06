@@ -9,6 +9,11 @@ class Utils
 	 */
 	static $CookieDefaultPath = '';
 
+	/**
+	 * @var bool|null
+	 */
+	static $CookieDefaultSecure = null;
+
 	static $Cookies = null;
 
 	static $RSA = null;
@@ -389,7 +394,29 @@ class Utils
 	{
 		if (\file_exists($sFileName))
 		{
-			$aLang = \RainLoop\Utils::CustomParseIniFile($sFileName, true);
+			$isYml = '.yml' === substr($sFileName, -4);
+			if ($isYml)
+			{
+				$aLang = \spyc_load(\str_replace(array(': >-', ': |-', ': |+'), array(': >', ': |', ': |'), \file_get_contents($sFileName)));
+				if (\is_array($aLang))
+				{
+					\reset($aLang);
+					$sLangKey = key($aLang);
+					if (isset($aLang[$sLangKey]) && is_array($aLang[$sLangKey]))
+					{
+						$aLang = $aLang[$sLangKey];
+					}
+					else
+					{
+						$aLang = null;
+					}
+				}
+			}
+			else
+			{
+				$aLang = \RainLoop\Utils::CustomParseIniFile($sFileName, true);
+			}
+
 			if (\is_array($aLang))
 			{
 				foreach ($aLang as $sKey => $mValue)
@@ -448,12 +475,13 @@ class Utils
 	public static function ClearHtmlOutput($sHtml)
 	{
 //		return $sHtml;
-		return \str_replace('> <', '><',
+		return \trim(\str_replace('> <', '><',
+			\str_replace('" />', '"/>',
 			\preg_replace('/[\s]+&nbsp;/i', '&nbsp;',
 			\preg_replace('/&nbsp;[\s]+/i', '&nbsp;',
 			\preg_replace('/[\r\n\t]+/', ' ',
 			$sHtml
-		))));
+		))))));
 	}
 
 	/**
@@ -508,7 +536,7 @@ class Utils
 		return isset(\RainLoop\Utils::$Cookies[$sName]) ? \RainLoop\Utils::$Cookies[$sName] : $mDefault;
 	}
 
-	public static function SetCookie($sName, $sValue = '', $iExpire = 0, $sPath = null, $sDomain = null, $sSecure = null, $bHttpOnly = true)
+	public static function SetCookie($sName, $sValue = '', $iExpire = 0, $sPath = null, $sDomain = null, $bSecure = null, $bHttpOnly = true)
 	{
 		if (null === \RainLoop\Utils::$Cookies)
 		{
@@ -521,8 +549,13 @@ class Utils
 			$sPath = $sPath && 0 < \strlen($sPath) ? $sPath : null;
 		}
 
+		if (null === $bSecure)
+		{
+			$bSecure = \RainLoop\Utils::$CookieDefaultSecure;
+		}
+
 		\RainLoop\Utils::$Cookies[$sName] = $sValue;
-		@\setcookie($sName, $sValue, $iExpire, $sPath, $sDomain, $sSecure, $bHttpOnly);
+		@\setcookie($sName, $sValue, $iExpire, $sPath, $sDomain, $bSecure, $bHttpOnly);
 	}
 
 	public static function ClearCookie($sName)
@@ -606,6 +639,32 @@ class Utils
 	public static function WebStaticPath()
 	{
 		return self::WebVersionPath().'static/';
+	}
+
+	/**
+	 * @param array $aSuggestions
+	 *
+	 * @return array
+	 */
+	public static function RemoveSuggestionDuplicates($aSuggestions)
+	{
+		$aResult = array();
+
+		if (is_array($aSuggestions))
+		{
+			$aCache = array();
+			foreach ($aSuggestions as $aItem)
+			{
+				$sLine = \implode('~~', $aItem);
+				if (!isset($aCache[$sLine]))
+				{
+					$aCache[$sLine] = true;
+					$aResult[] = $aItem;
+				}
+			}
+		}
+
+		return $aResult;
 	}
 
 	/**

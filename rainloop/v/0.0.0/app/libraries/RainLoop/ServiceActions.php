@@ -79,6 +79,14 @@ class ServiceActions
 	}
 
 	/**
+	 * @return \RainLoop\Providers\Settings
+	 */
+	public function SettingsProvider()
+	{
+		return $this->oActions->SettingsProvider();
+	}
+
+	/**
 	 * @param array $aPaths
 	 *
 	 * @return \RainLoop\ServiceActions
@@ -182,9 +190,21 @@ class ServiceActions
 			$aResponseItem = $this->oActions->ExceptionResponse(
 				empty($sAction) ? 'Unknown' : $sAction, $oException);
 
-			if (\is_array($aResponseItem) && 'Folders' === $sAction && $oException instanceof \RainLoop\Exceptions\ClientException)
+			if (\is_array($aResponseItem) && $oException instanceof \RainLoop\Exceptions\ClientException)
 			{
-				$aResponseItem['ClearAuth'] = true;
+				if ('Folders' === $sAction)
+				{
+					$aResponseItem['ClearAuth'] = true;
+				}
+
+				if ($oException->getLogoutOnException())
+				{
+					$aResponseItem['Logout'] = true;
+					if ($oException->getAdditionalMessage())
+					{
+						$this->oActions->SetSpecLogoutCustomMgsWithDeletion($oException->getAdditionalMessage());
+					}
+				}
 			}
 		}
 
@@ -226,6 +246,8 @@ class ServiceActions
 	 */
 	public function ServiceOwnCloudAuth()
 	{
+		$this->oHttp->ServerNoCache();
+
 		if (!\RainLoop\Utils::IsOwnCloud() ||
 			!isset($_ENV['___rainloop_owncloud_email']) ||
 			!isset($_ENV['___rainloop_owncloud_password']) ||
@@ -475,6 +497,8 @@ class ServiceActions
 				$sMethodName = 'Raw'.$sAction;
 				if (\method_exists($this->oActions, $sMethodName))
 				{
+					@\header('X-Raw-Action: '.$sMethodName, true);
+
 					$sRawError = '';
 					$this->oActions->SetActionParams(array(
 						'RawKey' => empty($this->aPaths[3]) ? '' : $this->aPaths[3],
@@ -707,7 +731,7 @@ class ServiceActions
 					include_once APP_VERSION_ROOT_PATH.'app/libraries/lessphp/ctype.php';
 					include_once APP_VERSION_ROOT_PATH.'app/libraries/lessphp/lessc.inc.php';
 
-					$oLess = new \lessc();
+					$oLess = new \RainLoopVendor\lessc();
 					$oLess->setFormatter('compressed');
 
 					$aResult = array();
@@ -789,17 +813,37 @@ class ServiceActions
 	/**
 	 * @return string
 	 */
-	public function ServiceAppData()
+	public function ServiceAppData($sAdd = '')
 	{
-		return $this->localAppData(false);
+		return $this->localAppData(false, $sAdd);
 	}
 
 	/**
 	 * @return string
 	 */
-	public function ServiceAdminAppData()
+	public function ServiceAdminAppData($sAdd = '')
 	{
-		return $this->localAppData(true);
+		return $this->localAppData(true, $sAdd);
+	}
+
+	/**
+	 * @return string
+	 */
+	public function ServiceSkipMobile()
+	{
+		\RainLoop\Utils::SetCookie(\RainLoop\Actions::RL_SKIP_MOBILE_KEY, 1);
+		$this->oActions->Location('./');
+		return '';
+	}
+
+	/**
+	 * @return string
+	 */
+	public function ServiceClearSkipMobile()
+	{
+		\RainLoop\Utils::ClearCookie(\RainLoop\Actions::RL_SKIP_MOBILE_KEY);
+		$this->oActions->Location('./');
+		return '';
 	}
 
 	/**
@@ -840,6 +884,8 @@ class ServiceActions
 	 */
 	public function ServiceMailto()
 	{
+		$this->oHttp->ServerNoCache();
+
 		$sTo = \trim($this->oHttp->GetQuery('to', ''));
 		if (!empty($sTo) && \preg_match('/^mailto:/i', $sTo))
 		{
@@ -859,6 +905,8 @@ class ServiceActions
 	 */
 	public function ServicePing()
 	{
+		$this->oHttp->ServerNoCache();
+
 		@\header('Content-Type: text/plain; charset=utf-8');
 		$this->oActions->Logger()->Write('Pong', \MailSo\Log\Enumerations\Type::INFO, 'PING');
 		return 'Pong';
@@ -869,6 +917,8 @@ class ServiceActions
 	 */
 	public function ServiceInfo()
 	{
+		$this->oHttp->ServerNoCache();
+
 		if ($this->oActions->IsAdminLoggined(false))
 		{
 			@\header('Content-Type: text/html; charset=utf-8');
@@ -881,6 +931,8 @@ class ServiceActions
 	 */
 	public function ServiceSso()
 	{
+		$this->oHttp->ServerNoCache();
+
 		$oException = null;
 		$oAccount = null;
 		$bLogout = true;
@@ -997,6 +1049,8 @@ class ServiceActions
 	 */
 	public function ServiceExternalLogin()
 	{
+		$this->oHttp->ServerNoCache();
+
 		$oException = null;
 		$oAccount = null;
 		$bLogout = true;
@@ -1063,6 +1117,8 @@ class ServiceActions
 	 */
 	public function ServiceExternalSso()
 	{
+		$this->oHttp->ServerNoCache();
+
 		$sResult = '';
 		$bLogout = true;
 		$sKey = $this->oActions->Config()->Get('labs', 'external_sso_key', '');
@@ -1099,14 +1155,13 @@ class ServiceActions
 		return $sResult;
 	}
 
-	/**
-	 * @return string
-	 */
-	public function ServiceChange()
+	private function changeAction()
 	{
+		$this->oHttp->ServerNoCache();
+
 		$oAccount = $this->oActions->GetAccount();
 
-		if ($oAccount && $this->oActions->GetCapa(false, \RainLoop\Enumerations\Capa::ADDITIONAL_ACCOUNTS, $oAccount))
+		if ($oAccount && $this->oActions->GetCapa(false, false, \RainLoop\Enumerations\Capa::ADDITIONAL_ACCOUNTS, $oAccount))
 		{
 			$oAccountToLogin = null;
 			$sEmail = empty($this->aPaths[2]) ? '' : \urldecode(\trim($this->aPaths[2]));
@@ -1126,7 +1181,24 @@ class ServiceActions
 				$this->oActions->AuthToken($oAccountToLogin);
 			}
 		}
+	}
 
+	/**
+	 * @return string
+	 */
+	public function ServiceChangeMobile()
+	{
+		$this->changeAction();
+		$this->oActions->Location('./?/Mobile/');
+		return '';
+	}
+
+	/**
+	 * @return string
+	 */
+	public function ServiceChange()
+	{
+		$this->changeAction();
 		$this->oActions->Location('./');
 		return '';
 	}
@@ -1164,10 +1236,11 @@ class ServiceActions
 
 	/**
 	 * @param bool $bAdmin = true
+	 * @param string $sAdd = ''
 	 *
 	 * @return string
 	 */
-	private function localAppData($bAdmin = false)
+	private function localAppData($bAdmin = false, $sAdd = '')
 	{
 		@\header('Content-Type: application/javascript; charset=utf-8');
 		$this->oHttp->ServerNoCache();
@@ -1205,7 +1278,9 @@ class ServiceActions
 			$this->oActions->SetSpecAuthToken($sAuthAccountHash);
 		}
 
-		$sResult = $this->compileAppData($this->oActions->AppData($bAdmin, $sAuthAccountHash), false);
+		$sResult = $this->compileAppData($this->oActions->AppData($bAdmin,
+			0 === \strpos($sAdd, 'mobile'), '1' === \substr($sAdd, -1),
+			$sAuthAccountHash), false);
 
 		$this->Logger()->Write($sResult, \MailSo\Log\Enumerations\Type::INFO, 'APPDATA');
 
@@ -1248,20 +1323,10 @@ class ServiceActions
 	 */
 	private function convertLanguageNameToMomentLanguageName($sLanguage)
 	{
-		switch ($sLanguage)
-		{
-			case 'pt-pt':
-				$sLanguage = 'pt';
-				break;
-			case 'ja-jp':
-				$sLanguage = 'ja';
-				break;
-			case 'ko-kr':
-				$sLanguage = 'ko';
-				break;
-		}
+		$aHelper = array('en_gb' => 'en-gb', 'fr_ca' => 'fr-ca', 'pt_br' => 'pt-br',
+			'uk_ua' => 'ua', 'zh_cn' => 'zh-cn', 'zh_tw' => 'zh-tw', 'fa_ir' => 'fa');
 
-		return $sLanguage;
+		return isset($aHelper[$sLanguage]) ? $aHelper[$sLanguage] : \substr($sLanguage, 0, 2);
 	}
 
 	/**
@@ -1275,8 +1340,8 @@ class ServiceActions
 	{
 		$aResultLang = array();
 
-		$sMoment = 'window.moment && window.moment.lang && window.moment.lang(\'en\');';
-		$sMomentFileName = APP_VERSION_ROOT_PATH.'app/i18n/moment/'.
+		$sMoment = 'window.moment && window.moment.locale && window.moment.locale(\'en\');';
+		$sMomentFileName = APP_VERSION_ROOT_PATH.'app/localization/moment/'.
 			$this->convertLanguageNameToMomentLanguageName($sLanguage).'.js';
 
 		if (\file_exists($sMomentFileName))
@@ -1285,9 +1350,11 @@ class ServiceActions
 			$sMoment = \preg_replace('/\/\/[^\n]+\n/', '', $sMoment);
 		}
 
-		\RainLoop\Utils::ReadAndAddLang(APP_VERSION_ROOT_PATH.'app/i18n/langs.ini', $aResultLang);
-		\RainLoop\Utils::ReadAndAddLang(APP_VERSION_ROOT_PATH.'langs/'.
-			($bAdmin ? 'admin/' : '').$sLanguage.'.ini', $aResultLang);
+		\RainLoop\Utils::ReadAndAddLang(APP_VERSION_ROOT_PATH.'app/localization/langs.yml', $aResultLang);
+		\RainLoop\Utils::ReadAndAddLang(APP_VERSION_ROOT_PATH.'app/localization/'.
+			($bAdmin ? 'admin' : 'webmail').'/_source.en.yml', $aResultLang);
+		\RainLoop\Utils::ReadAndAddLang(APP_VERSION_ROOT_PATH.'app/localization/'.
+			($bAdmin ? 'admin' : 'webmail').'/'.$sLanguage.'.yml', $aResultLang);
 
 		$this->Plugins()->ReadLang($sLanguage, $aResultLang);
 
@@ -1296,6 +1363,10 @@ class ServiceActions
 		foreach ($aLangKeys as $sKey)
 		{
 			$sString = isset($aResultLang[$sKey]) ? $aResultLang[$sKey] : $sKey;
+			if (\is_array($sString))
+			{
+				$sString = \implode("\n", $sString);
+			}
 
 			$sLangJs .= '"'.\str_replace('"', '\\"', \str_replace('\\', '\\\\', $sKey)).'":'
 				.'"'.\str_replace(array("\r", "\n", "\t"), array('\r', '\n', '\t'),
@@ -1320,9 +1391,8 @@ class ServiceActions
 	private function compileAppData($aAppData, $bWrapByScriptTag = true)
 	{
 		return
-			($bWrapByScriptTag ? '<script data-cfasync="false">' : '').
-			'window.rainloopAppData='.\json_encode($aAppData).';'.
-			'if(window.__rlah_set){__rlah_set()};'.
+			($bWrapByScriptTag ? '<script type="text/javascript" data-cfasync="false">' : '').
+			'if(window.__initAppData){window.__initAppData('.\json_encode($aAppData).');}'.
 			($bWrapByScriptTag ? '</script>' : '')
 		;
 	}

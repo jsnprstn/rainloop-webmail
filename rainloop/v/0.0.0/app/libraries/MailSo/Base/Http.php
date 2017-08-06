@@ -707,7 +707,7 @@ class Http
 	}
 
 	/**
-	 * @staticvar bool $bCache
+	 * @staticvar boolean $bCache
 	 */
 	public function ServerNoCache()
 	{
@@ -724,7 +724,7 @@ class Http
 	}
 
 	/**
-	 * @staticvar bool $bCache
+	 * @staticvar boolean $bCache
 	 * @param string $sEtag
 	 * @param int $iLastModified
 	 * @param int $iExpires
@@ -753,14 +753,16 @@ class Http
 		if (99 < $iStatus)
 		{
 			$aStatus = array(
+				200 => 'OK',
+				206 => 'Partial Content',
 				301 => 'Moved Permanently',
 				304 => 'Not Modified',
-				200 => 'OK',
 				400 => 'Bad Request',
 				401 => 'Unauthorized',
 				403 => 'Forbidden',
 				404 => 'Not Found',
-				405 => 'Method Not Allowed'
+				405 => 'Method Not Allowed',
+				416 => 'Requested range not satisfiable'
 			);
 
 			$sCustomStatusText = \trim($sCustomStatusText);

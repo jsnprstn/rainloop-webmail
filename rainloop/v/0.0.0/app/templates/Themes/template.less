@@ -64,6 +64,16 @@
 	.thm-linear-gradient-mixin(@login-gradient-start, @login-gradient-end);
 	.thm-border-radius(@login-border-radius);
 	.thm-box-shadow(@login-box-shadow);
+
+	&.submitting-pane.submitting {
+		&:before{
+			background: @spinner-background;
+			.thm-border-radius(@login-border-radius);
+		}
+		&:after{
+			border-top-color: @spinner-color;
+		}
+	}
 }
 
 .thm-login-text {
@@ -74,7 +84,7 @@
 	}
 }
 
-.thm-powered {
+.thm-powered, .thm-mobile-switcher {
 	color: @powered-color;
 	a {
 		color: @powered-color;
@@ -187,8 +197,38 @@
 	.thm-rgba-background-color(@message-background-color, @message-rgba-background-color);
 }
 
+#rl-app{
+	display: block;
+}
 
 html.no-css {
+
+	margin: 0;
+	padding: 0;
+	font-family: Arial, Verdana, Geneva, sans-serif;
+
+	body {
+		margin: 0;
+		padding: 0;
+	}
+
+	#rl-loading, #rl-loading-error {
+		position: absolute;
+		font-size: 30px;
+		line-height: 130%;
+		top: 50%;
+		width: 100%;
+		height: 65px;
+		margin: 0;
+		margin-top: -60px;
+		background-color: transparent;
+		text-align: center;
+		color: #333;
+	}
+
+	.progressjs-container {
+		display: none;
+	}
 
 	.thm-body {
 		color: #333;
@@ -208,5 +248,110 @@ html.no-css {
 	.thm-login-desc .desc {
 		color: #333 !important;
 		text-shadow: none !important;
+	}
+}
+
+// glass style
+html.glass {
+
+	@glass-color: #fff !important;
+	@glass-p-color: #aaa !important;
+	@glass-error-color: #f76260 !important;
+	@glass-m-color: rgba(255, 255, 255, .8) !important;
+
+	.thm-login {
+		background: none !important;
+		background: rgba(0, 0, 0, .5) !important;
+		box-shadow: none !important;
+
+		border: none !important;
+		border: 1px solid rgba(255, 255, 255, .2) !important;
+
+		.controls {
+			.input-append .add-on i {
+				color: @glass-m-color;
+				text-shadow: none !important;
+				outline: none !important;
+				box-shadow: none !important;
+			}
+
+			input {
+				border: 1px solid none !important;
+				background: none !important;
+				outline: none !important;
+				text-shadow: none !important;
+				box-shadow: none !important;
+
+				color: @glass-color;
+				border-color: @glass-m-color;
+
+				&::-webkit-input-placeholder {
+					color: @glass-color;
+					text-shadow: none !important;
+				}
+				&::-moz-placeholder {
+					color: @glass-color;
+					text-shadow: none !important;
+				}
+				&:-moz-placeholder {
+					color: @glass-color;
+					text-shadow: none !important;
+				}
+				&:-ms-input-placeholder {
+					color: @glass-color;
+					text-shadow: none !important;
+				}
+				&:input-placeholder {
+					color: @glass-color;
+					text-shadow: none !important;
+				}
+				&:placeholder {
+					color: @glass-color;
+					text-shadow: none !important;
+				}
+
+				&:focus, &:hover {
+					border-color: @glass-color;
+				}
+			}
+			.btn {
+				border: 1px solid none !important;
+				background: none !important;
+				outline: none !important;
+				text-shadow: none !important;
+				box-shadow: none !important;
+
+				color: @glass-color;
+				border-color: @glass-m-color;
+
+				text-transform: uppercase;
+				font-size: 13px;
+
+				&:hover, &:active{
+					border-color: @glass-color;
+				}
+			}
+
+			&.error {
+				.input-append .add-on i {
+					color: @glass-error-color;
+				}
+
+				input {
+					color: @glass-error-color;
+					border-color: @glass-error-color;
+				}
+			}
+		}
+	}
+
+	.thm-login-text {
+		color: @glass-m-color;
+		text-shadow: none !important;
+
+		.legend, .e-checkbox-icon, .g-ui-link, .social-button, .language-button {
+			color: @glass-m-color;
+			text-shadow: none !important;
+		}
 	}
 }

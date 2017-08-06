@@ -1,32 +1,33 @@
 
-(function () {
+import _ from '_';
+import $ from '$';
+import ko from 'ko';
+import moment from 'moment';
+import classnames from 'classnames';
 
-	'use strict';
+import {MessagePriority, SignedVerifyStatus} from 'Common/Enums';
+import {i18n} from 'Common/Translator';
 
-	var
-		window = require('window'),
-		_ = require('_'),
-		$ = require('$'),
-		ko = require('ko'),
+import {
+	pInt, inArray, isArray, isUnd, trim,
+	previewMessage, windowResize, friendlySize, isNonEmptyArray
+} from 'Common/Utils';
 
-		Enums = require('Common/Enums'),
-		Utils = require('Common/Utils'),
-		Globals = require('Common/Globals'),
-		Links = require('Common/Links'),
+import {$win} from 'Common/Globals';
+import {messageViewLink, messageDownloadLink} from 'Common/Links';
 
-		AttachmentModel = require('Model/Attachment'),
+import FolderStore from 'Stores/User/Folder';
+import PgpStore from 'Stores/User/Pgp';
 
-		MessageHelper = require('Helper/Message'),
+import {emailArrayFromJson, emailArrayToStringClear, emailArrayToString, replyHelper} from 'Helper/Message';
 
-		AbstractModel = require('Knoin/AbstractModel')
-	;
+import {AttachmentModel, staticCombinedIconClass} from 'Model/Attachment';
+import {AbstractModel} from 'Knoin/AbstractModel';
 
-	/**
-	 * @constructor
-	 */
-	function MessageModel()
-	{
-		AbstractModel.call(this, 'MessageModel');
+class MessageModel extends AbstractModel
+{
+	constructor() {
+		super('MessageModel');
 
 		this.folderFullNameRaw = '';
 		this.uid = '';
@@ -37,7 +38,7 @@
 		this.subjectSuffix = ko.observable('');
 		this.size = ko.observable(0);
 		this.dateTimeStampInUTC = ko.observable(0);
-		this.priority = ko.observable(Enums.MessagePriority.Normal);
+		this.priority = ko.observable(MessagePriority.Normal);
 
 		this.proxy = false;
 
@@ -57,6 +58,7 @@
 		this.bcc = [];
 		this.replyTo = [];
 		this.deliveredTo = [];
+		this.unsubsribeLinks = [];
 
 		this.newForAnimation = ko.observable(false);
 
@@ -74,10 +76,7 @@
 		this.hasAttachments = ko.observable(false);
 		this.attachmentsSpecData = ko.observableArray([]);
 
-		this.attachmentIconClass = ko.computed(function () {
-			return AttachmentModel.staticCombinedIconClass(
-				this.hasAttachments() ? this.attachmentsSpecData() : []);
-		}, this);
+		this.attachmentIconClass = ko.computed(() => staticCombinedIconClass(this.hasAttachments() ? this.attachmentsSpecData() : []));
 
 		this.body = null;
 
@@ -87,10 +86,10 @@
 
 		this.isPgpSigned = ko.observable(false);
 		this.isPgpEncrypted = ko.observable(false);
-		this.pgpSignedVerifyStatus = ko.observable(Enums.SignedVerifyStatus.None);
+		this.pgpSignedVerifyStatus = ko.observable(SignedVerifyStatus.None);
 		this.pgpSignedVerifyUser = ko.observable('');
 
-		this.priority = ko.observable(Enums.MessagePriority.Normal);
+		this.priority = ko.observable(MessagePriority.Normal);
 		this.readReceipt = ko.observable('');
 
 		this.aDraftInfo = [];
@@ -103,32 +102,23 @@
 
 		this.threads = ko.observableArray([]);
 
-		this.threadsLen = ko.computed(function () {
-			return this.threads().length;
-		}, this);
-
-		this.isImportant = ko.computed(function () {
-			return Enums.MessagePriority.High === this.priority();
-		}, this);
+		this.threadsLen = ko.computed(() => this.threads().length);
+		this.isImportant = ko.computed(() => MessagePriority.High === this.priority());
 
 		this.regDisposables([this.attachmentIconClass, this.threadsLen, this.isImportant]);
 	}
 
-	_.extend(MessageModel.prototype, AbstractModel.prototype);
-
 	/**
 	 * @static
 	 * @param {AjaxJsonMessage} oJsonMessage
-	 * @return {?MessageModel}
+	 * @returns {?MessageModel}
 	 */
-	MessageModel.newInstanceFromJson = function (oJsonMessage)
-	{
-		var oMessageModel = new MessageModel();
-		return oMessageModel.initByJson(oJsonMessage) ? oMessageModel : null;
-	};
+	static newInstanceFromJson(json) {
+		const oMessageModel = new MessageModel();
+		return oMessageModel.initByJson(json) ? oMessageModel : null;
+	}
 
-	MessageModel.prototype.clear = function ()
-	{
+	clear() {
 		this.folderFullNameRaw = '';
 		this.uid = '';
 		this.hash = '';
@@ -138,7 +128,7 @@
 		this.subjectSuffix('');
 		this.size(0);
 		this.dateTimeStampInUTC(0);
-		this.priority(Enums.MessagePriority.Normal);
+		this.priority(MessagePriority.Normal);
 
 		this.proxy = false;
 
@@ -157,6 +147,7 @@
 		this.bcc = [];
 		this.replyTo = [];
 		this.deliveredTo = [];
+		this.unsubsribeLinks = [];
 
 		this.newForAnimation(false);
 
@@ -180,10 +171,10 @@
 
 		this.isPgpSigned(false);
 		this.isPgpEncrypted(false);
-		this.pgpSignedVerifyStatus(Enums.SignedVerifyStatus.None);
+		this.pgpSignedVerifyStatus(SignedVerifyStatus.None);
 		this.pgpSignedVerifyUser('');
 
-		this.priority(Enums.MessagePriority.Normal);
+		this.priority(MessagePriority.Normal);
 		this.readReceipt('');
 		this.aDraftInfo = [];
 		this.sMessageId = '';
@@ -194,68 +185,81 @@
 
 		this.hasUnseenSubMessage(false);
 		this.hasFlaggedSubMessage(false);
-	};
+	}
 
 	/**
-	 * @return {string}
+	 * @param {Array} properties
+	 * @returns {Array}
 	 */
-	MessageModel.prototype.friendlySize = function ()
-	{
-		return Utils.friendlySize(this.size());
-	};
+	getEmails(properties) {
+		return _.compact(_.uniq(_.map(
+			_.reduce(properties, (carry, property) => carry.concat(this[property]), []),
+			(oItem) => (oItem ? oItem.email : '')
+		)));
+	}
 
-	MessageModel.prototype.computeSenderEmail = function ()
-	{
-		var
-			sSent = require('Stores/User/Folder').sentFolder(),
-			sDraft = require('Stores/User/Folder').draftFolder()
-		;
+	/**
+	 * @returns {Array}
+	 */
+	getRecipientsEmails() {
+		return this.getEmails(['to', 'cc']);
+	}
 
-		this.senderEmailsString(this.folderFullNameRaw === sSent || this.folderFullNameRaw === sDraft ?
+	/**
+	 * @returns {string}
+	 */
+	friendlySize() {
+		return friendlySize(this.size());
+	}
+
+	computeSenderEmail() {
+		const
+			sentFolder = FolderStore.sentFolder(),
+			draftFolder = FolderStore.draftFolder();
+
+		this.senderEmailsString(this.folderFullNameRaw === sentFolder || this.folderFullNameRaw === draftFolder ?
 			this.toEmailsString() : this.fromEmailString());
 
-		this.senderClearEmailsString(this.folderFullNameRaw === sSent || this.folderFullNameRaw === sDraft ?
+		this.senderClearEmailsString(this.folderFullNameRaw === sentFolder || this.folderFullNameRaw === draftFolder ?
 			this.toClearEmailsString() : this.fromClearEmailString());
-	};
+	}
 
 	/**
-	 * @param {AjaxJsonMessage} oJsonMessage
-	 * @return {boolean}
+	 * @param {AjaxJsonMessage} json
+	 * @returns {boolean}
 	 */
-	MessageModel.prototype.initByJson = function (oJsonMessage)
-	{
-		var
-			bResult = false,
-			iPriority = Enums.MessagePriority.Normal
-		;
+	initByJson(json) {
+		let
+			result = false,
+			priority = MessagePriority.Normal;
 
-		if (oJsonMessage && 'Object/Message' === oJsonMessage['@Object'])
+		if (json && 'Object/Message' === json['@Object'])
 		{
-			iPriority = Utils.pInt(oJsonMessage.Priority);
-			this.priority(-1 < Utils.inArray(iPriority, [Enums.MessagePriority.High, Enums.MessagePriority.Low]) ?
-				iPriority : Enums.MessagePriority.Normal);
+			priority = pInt(json.Priority);
+			this.priority(-1 < inArray(priority, [MessagePriority.High, MessagePriority.Low]) ? priority : MessagePriority.Normal);
 
-			this.folderFullNameRaw = oJsonMessage.Folder;
-			this.uid = oJsonMessage.Uid;
-			this.hash = oJsonMessage.Hash;
-			this.requestHash = oJsonMessage.RequestHash;
+			this.folderFullNameRaw = json.Folder;
+			this.uid = json.Uid;
+			this.hash = json.Hash;
+			this.requestHash = json.RequestHash;
 
-			this.proxy = !!oJsonMessage.ExternalProxy;
+			this.proxy = !!json.ExternalProxy;
 
-			this.size(Utils.pInt(oJsonMessage.Size));
+			this.size(pInt(json.Size));
 
-			this.from = MessageHelper.emailArrayFromJson(oJsonMessage.From);
-			this.to = MessageHelper.emailArrayFromJson(oJsonMessage.To);
-			this.cc = MessageHelper.emailArrayFromJson(oJsonMessage.Cc);
-			this.bcc = MessageHelper.emailArrayFromJson(oJsonMessage.Bcc);
-			this.replyTo = MessageHelper.emailArrayFromJson(oJsonMessage.ReplyTo);
-			this.deliveredTo = MessageHelper.emailArrayFromJson(oJsonMessage.DeliveredTo);
+			this.from = emailArrayFromJson(json.From);
+			this.to = emailArrayFromJson(json.To);
+			this.cc = emailArrayFromJson(json.Cc);
+			this.bcc = emailArrayFromJson(json.Bcc);
+			this.replyTo = emailArrayFromJson(json.ReplyTo);
+			this.deliveredTo = emailArrayFromJson(json.DeliveredTo);
+			this.unsubsribeLinks = isNonEmptyArray(json.UnsubsribeLinks) ? json.UnsubsribeLinks : [];
 
-			this.subject(oJsonMessage.Subject);
-			if (Utils.isArray(oJsonMessage.SubjectParts))
+			this.subject(json.Subject);
+			if (isArray(json.SubjectParts))
 			{
-				this.subjectPrefix(oJsonMessage.SubjectParts[0]);
-				this.subjectSuffix(oJsonMessage.SubjectParts[1]);
+				this.subjectPrefix(json.SubjectParts[0]);
+				this.subjectSuffix(json.SubjectParts[1]);
 			}
 			else
 			{
@@ -263,572 +267,459 @@
 				this.subjectSuffix(this.subject());
 			}
 
-			this.dateTimeStampInUTC(Utils.pInt(oJsonMessage.DateTimeStampInUTC));
-			this.hasAttachments(!!oJsonMessage.HasAttachments);
-			this.attachmentsSpecData(Utils.isArray(oJsonMessage.AttachmentsSpecData) ?
-				oJsonMessage.AttachmentsSpecData : []);
+			this.dateTimeStampInUTC(pInt(json.DateTimeStampInUTC));
+			this.hasAttachments(!!json.HasAttachments);
+			this.attachmentsSpecData(isArray(json.AttachmentsSpecData) ? json.AttachmentsSpecData : []);
 
-			this.fromEmailString(MessageHelper.emailArrayToString(this.from, true));
-			this.fromClearEmailString(MessageHelper.emailArrayToStringClear(this.from));
-			this.toEmailsString(MessageHelper.emailArrayToString(this.to, true));
-			this.toClearEmailsString(MessageHelper.emailArrayToStringClear(this.to));
+			this.fromEmailString(emailArrayToString(this.from, true));
+			this.fromClearEmailString(emailArrayToStringClear(this.from));
+			this.toEmailsString(emailArrayToString(this.to, true));
+			this.toClearEmailsString(emailArrayToStringClear(this.to));
 
-			this.threads(Utils.isArray(oJsonMessage.Threads) ? oJsonMessage.Threads : []);
+			this.threads(isArray(json.Threads) ? json.Threads : []);
 
-			this.initFlagsByJson(oJsonMessage);
+			this.initFlagsByJson(json);
 			this.computeSenderEmail();
 
-			bResult = true;
+			result = true;
 		}
 
-		return bResult;
-	};
+		return result;
+	}
 
 	/**
-	 * @param {AjaxJsonMessage} oJsonMessage
-	 * @return {boolean}
+	 * @param {AjaxJsonMessage} json
+	 * @returns {boolean}
 	 */
-	MessageModel.prototype.initUpdateByMessageJson = function (oJsonMessage)
-	{
-		var
-			bResult = false,
-			iPriority = Enums.MessagePriority.Normal
-		;
+	initUpdateByMessageJson(json) {
+		let
+			result = false,
+			priority = MessagePriority.Normal;
 
-		if (oJsonMessage && 'Object/Message' === oJsonMessage['@Object'])
+		if (json && 'Object/Message' === json['@Object'])
 		{
-			iPriority = Utils.pInt(oJsonMessage.Priority);
-			this.priority(-1 < Utils.inArray(iPriority, [Enums.MessagePriority.High, Enums.MessagePriority.Low]) ?
-				iPriority : Enums.MessagePriority.Normal);
+			priority = pInt(json.Priority);
+			this.priority(-1 < inArray(priority, [MessagePriority.High, MessagePriority.Low]) ?
+				priority : MessagePriority.Normal);
 
-			this.aDraftInfo = oJsonMessage.DraftInfo;
+			this.aDraftInfo = json.DraftInfo;
 
-			this.sMessageId = oJsonMessage.MessageId;
-			this.sInReplyTo = oJsonMessage.InReplyTo;
-			this.sReferences = oJsonMessage.References;
+			this.sMessageId = json.MessageId;
+			this.sInReplyTo = json.InReplyTo;
+			this.sReferences = json.References;
 
-			this.proxy = !!oJsonMessage.ExternalProxy;
+			this.proxy = !!json.ExternalProxy;
 
-			if (require('Stores/User/Pgp').capaOpenPGP())
+			if (PgpStore.capaOpenPGP())
 			{
-				this.isPgpSigned(!!oJsonMessage.PgpSigned);
-				this.isPgpEncrypted(!!oJsonMessage.PgpEncrypted);
+				this.isPgpSigned(!!json.PgpSigned);
+				this.isPgpEncrypted(!!json.PgpEncrypted);
 			}
 
-			this.hasAttachments(!!oJsonMessage.HasAttachments);
-			this.attachmentsSpecData(Utils.isArray(oJsonMessage.AttachmentsSpecData) ?
-				oJsonMessage.AttachmentsSpecData : []);
+			this.hasAttachments(!!json.HasAttachments);
+			this.attachmentsSpecData(isArray(json.AttachmentsSpecData) ? json.AttachmentsSpecData : []);
 
-			this.foundedCIDs = Utils.isArray(oJsonMessage.FoundedCIDs) ? oJsonMessage.FoundedCIDs : [];
-			this.attachments(this.initAttachmentsFromJson(oJsonMessage.Attachments));
+			this.foundedCIDs = isArray(json.FoundedCIDs) ? json.FoundedCIDs : [];
+			this.attachments(this.initAttachmentsFromJson(json.Attachments));
 
-			this.readReceipt(oJsonMessage.ReadReceipt || '');
+			this.readReceipt(json.ReadReceipt || '');
 
 			this.computeSenderEmail();
 
-			bResult = true;
+			result = true;
 		}
 
-		return bResult;
-	};
+		return result;
+	}
 
 	/**
 	 * @param {(AjaxJsonAttachment|null)} oJsonAttachments
-	 * @return {Array}
+	 * @returns {Array}
 	 */
-	MessageModel.prototype.initAttachmentsFromJson = function (oJsonAttachments)
-	{
-		var
-			iIndex = 0,
-			iLen = 0,
-			oAttachmentModel = null,
-			aResult = []
-		;
+	initAttachmentsFromJson(json) {
+		let
+			index = 0,
+			len = 0,
+			attachment = null;
+		const result = [];
 
-		if (oJsonAttachments && 'Collection/AttachmentCollection' === oJsonAttachments['@Object'] &&
-			Utils.isNonEmptyArray(oJsonAttachments['@Collection']))
+		if (json && 'Collection/AttachmentCollection' === json['@Object'] && isNonEmptyArray(json['@Collection']))
 		{
-			for (iIndex = 0, iLen = oJsonAttachments['@Collection'].length; iIndex < iLen; iIndex++)
+			for (index = 0, len = json['@Collection'].length; index < len; index++)
 			{
-				oAttachmentModel = AttachmentModel.newInstanceFromJson(oJsonAttachments['@Collection'][iIndex]);
-				if (oAttachmentModel)
+				attachment = AttachmentModel.newInstanceFromJson(json['@Collection'][index]);
+				if (attachment)
 				{
-					if ('' !== oAttachmentModel.cidWithOutTags && 0 < this.foundedCIDs.length &&
-						0 <= Utils.inArray(oAttachmentModel.cidWithOutTags, this.foundedCIDs))
+					if ('' !== attachment.cidWithOutTags && 0 < this.foundedCIDs.length &&
+						0 <= inArray(attachment.cidWithOutTags, this.foundedCIDs))
 					{
-						oAttachmentModel.isLinked = true;
+						attachment.isLinked = true;
 					}
 
-					aResult.push(oAttachmentModel);
+					result.push(attachment);
 				}
 			}
 		}
 
-		return aResult;
-	};
+		return result;
+	}
 
 	/**
-	 * @param {AjaxJsonMessage} oJsonMessage
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	MessageModel.prototype.initFlagsByJson = function (oJsonMessage)
-	{
-		var bResult = false;
+	hasUnsubsribeLinks() {
+		return this.unsubsribeLinks && 0 < this.unsubsribeLinks.length;
+	}
 
-		if (oJsonMessage && 'Object/Message' === oJsonMessage['@Object'])
+	/**
+	 * @returns {string}
+	 */
+	getFirstUnsubsribeLink() {
+		return this.unsubsribeLinks && 0 < this.unsubsribeLinks.length ? (this.unsubsribeLinks[0] || '') : '';
+	}
+
+	/**
+	 * @param {AjaxJsonMessage} json
+	 * @returns {boolean}
+	 */
+	initFlagsByJson(json) {
+		let result = false;
+		if (json && 'Object/Message' === json['@Object'])
 		{
-			this.unseen(!oJsonMessage.IsSeen);
-			this.flagged(!!oJsonMessage.IsFlagged);
-			this.answered(!!oJsonMessage.IsAnswered);
-			this.forwarded(!!oJsonMessage.IsForwarded);
-			this.isReadReceipt(!!oJsonMessage.IsReadReceipt);
-			this.deletedMark(!!oJsonMessage.IsDeleted);
+			this.unseen(!json.IsSeen);
+			this.flagged(!!json.IsFlagged);
+			this.answered(!!json.IsAnswered);
+			this.forwarded(!!json.IsForwarded);
+			this.isReadReceipt(!!json.IsReadReceipt);
+			this.deletedMark(!!json.IsDeleted);
 
-			bResult = true;
+			result = true;
 		}
 
-		return bResult;
-	};
+		return result;
+	}
 
 	/**
-	 * @param {boolean} bFriendlyView
-	 * @param {boolean=} bWrapWithLink = false
-	 * @return {string}
+	 * @param {boolean} friendlyView
+	 * @param {boolean=} wrapWithLink = false
+	 * @returns {string}
 	 */
-	MessageModel.prototype.fromToLine = function (bFriendlyView, bWrapWithLink)
-	{
-		return MessageHelper.emailArrayToString(this.from, bFriendlyView, bWrapWithLink);
-	};
+	fromToLine(friendlyView, wrapWithLink = false) {
+		return emailArrayToString(this.from, friendlyView, wrapWithLink);
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.fromDkimData = function ()
-	{
-		var aResult = ['none', ''];
-		if (Utils.isNonEmptyArray(this.from) && 1 === this.from.length &&
-			this.from[0] && this.from[0].dkimStatus)
+	fromDkimData() {
+		let result = ['none', ''];
+		if (isNonEmptyArray(this.from) && 1 === this.from.length && this.from[0] && this.from[0].dkimStatus)
 		{
-			aResult = [this.from[0].dkimStatus, this.from[0].dkimValue || ''];
+			result = [this.from[0].dkimStatus, this.from[0].dkimValue || ''];
 		}
 
-		return aResult;
-	};
+		return result;
+	}
 
 	/**
-	 * @param {boolean} bFriendlyView
-	 * @param {boolean=} bWrapWithLink = false
-	 * @return {string}
+	 * @param {boolean} friendlyView
+	 * @param {boolean=} wrapWithLink = false
+	 * @returns {string}
 	 */
-	MessageModel.prototype.toToLine = function (bFriendlyView, bWrapWithLink)
-	{
-		return MessageHelper.emailArrayToString(this.to, bFriendlyView, bWrapWithLink);
-	};
+	toToLine(friendlyView, wrapWithLink = false) {
+		return emailArrayToString(this.to, friendlyView, wrapWithLink);
+	}
 
 	/**
-	 * @param {boolean} bFriendlyView
-	 * @param {boolean=} bWrapWithLink = false
-	 * @return {string}
+	 * @param {boolean} friendlyView
+	 * @param {boolean=} wrapWithLink = false
+	 * @returns {string}
 	 */
-	MessageModel.prototype.ccToLine = function (bFriendlyView, bWrapWithLink)
-	{
-		return MessageHelper.emailArrayToString(this.cc, bFriendlyView, bWrapWithLink);
-	};
+	ccToLine(friendlyView, wrapWithLink = false) {
+		return emailArrayToString(this.cc, friendlyView, wrapWithLink);
+	}
 
 	/**
-	 * @param {boolean} bFriendlyView
-	 * @param {boolean=} bWrapWithLink = false
-	 * @return {string}
+	 * @param {boolean} friendlyView
+	 * @param {boolean=} wrapWithLink = false
+	 * @returns {string}
 	 */
-	MessageModel.prototype.bccToLine = function (bFriendlyView, bWrapWithLink)
-	{
-		return MessageHelper.emailArrayToString(this.bcc, bFriendlyView, bWrapWithLink);
-	};
+	bccToLine(friendlyView, wrapWithLink = false) {
+		return emailArrayToString(this.bcc, friendlyView, wrapWithLink);
+	}
 
 	/**
-	 * @param {boolean} bFriendlyView
-	 * @param {boolean=} bWrapWithLink = false
-	 * @return {string}
+	 * @param {boolean} friendlyView
+	 * @param {boolean=} wrapWithLink = false
+	 * @returns {string}
 	 */
-	MessageModel.prototype.replyToToLine = function (bFriendlyView, bWrapWithLink)
-	{
-		return MessageHelper.emailArrayToString(this.replyTo, bFriendlyView, bWrapWithLink);
-	};
+	replyToToLine(friendlyView, wrapWithLink = false) {
+		return emailArrayToString(this.replyTo, friendlyView, wrapWithLink);
+	}
 
 	/**
 	 * @return string
 	 */
-	MessageModel.prototype.lineAsCss = function ()
-	{
-		var aResult = [];
-		if (this.deleted())
-		{
-			aResult.push('deleted');
-		}
-		if (this.deletedMark())
-		{
-			aResult.push('deleted-mark');
-		}
-		if (this.selected())
-		{
-			aResult.push('selected');
-		}
-		if (this.checked())
-		{
-			aResult.push('checked');
-		}
-		if (this.flagged())
-		{
-			aResult.push('flagged');
-		}
-		if (this.unseen())
-		{
-			aResult.push('unseen');
-		}
-		if (this.answered())
-		{
-			aResult.push('answered');
-		}
-		if (this.forwarded())
-		{
-			aResult.push('forwarded');
-		}
-		if (this.focused())
-		{
-			aResult.push('focused');
-		}
-		if (this.isImportant())
-		{
-			aResult.push('important');
-		}
-		if (this.hasAttachments())
-		{
-			aResult.push('withAttachments');
-		}
-		if (this.newForAnimation())
-		{
-			aResult.push('new');
-		}
-		if ('' === this.subject())
-		{
-			aResult.push('emptySubject');
-		}
-//		if (1 < this.threadsLen())
-//		{
-//			aResult.push('hasChildrenMessage');
-//		}
-		if (this.hasUnseenSubMessage())
-		{
-			aResult.push('hasUnseenSubMessage');
-		}
-		if (this.hasFlaggedSubMessage())
-		{
-			aResult.push('hasFlaggedSubMessage');
-		}
-
-		return aResult.join(' ');
-	};
-
-	/**
-	 * @return {boolean}
-	 */
-	MessageModel.prototype.hasVisibleAttachments = function ()
-	{
-		return !!_.find(this.attachments(), function (oAttachment) {
-			return !oAttachment.isLinked;
+	lineAsCss() {
+		return classnames({
+			'deleted': this.deleted(),
+			'deleted-mark': this.deletedMark(),
+			'selected': this.selected(),
+			'checked': this.checked(),
+			'flagged': this.flagged(),
+			'unseen': this.unseen(),
+			'answered': this.answered(),
+			'forwarded': this.forwarded(),
+			'focused': this.focused(),
+			'important': this.isImportant(),
+			'withAttachments': this.hasAttachments(),
+			'new': this.newForAnimation(),
+			'emptySubject': '' === this.subject(),
+			// 'hasChildrenMessage': 1 < this.threadsLen(),
+			'hasUnseenSubMessage': this.hasUnseenSubMessage(),
+			'hasFlaggedSubMessage': this.hasFlaggedSubMessage()
 		});
-	};
+	}
 
 	/**
-	 * @param {string} sCid
-	 * @return {*}
+	 * @returns {boolean}
 	 */
-	MessageModel.prototype.findAttachmentByCid = function (sCid)
-	{
-		var
-			oResult = null,
-			aAttachments = this.attachments()
-		;
+	hasVisibleAttachments() {
+		return !!_.find(this.attachments(), (item) => !item.isLinked);
+	}
 
-		if (Utils.isNonEmptyArray(aAttachments))
+	/**
+	 * @param {string} cid
+	 * @returns {*}
+	 */
+	findAttachmentByCid(cid) {
+		let result = null;
+		const attachments = this.attachments();
+
+		if (isNonEmptyArray(attachments))
 		{
-			sCid = sCid.replace(/^<+/, '').replace(/>+$/, '');
-			oResult = _.find(aAttachments, function (oAttachment) {
-				return sCid === oAttachment.cidWithOutTags;
-			});
+			cid = cid.replace(/^<+/, '').replace(/>+$/, '');
+			result = _.find(attachments, (item) => cid === item.cidWithOutTags);
 		}
 
-		return oResult || null;
-	};
+		return result || null;
+	}
 
 	/**
-	 * @param {string} sContentLocation
-	 * @return {*}
+	 * @param {string} contentLocation
+	 * @returns {*}
 	 */
-	MessageModel.prototype.findAttachmentByContentLocation = function (sContentLocation)
-	{
-		var
-			oResult = null,
-			aAttachments = this.attachments()
-		;
+	findAttachmentByContentLocation(contentLocation) {
+		let result = null;
+		const attachments = this.attachments();
 
-		if (Utils.isNonEmptyArray(aAttachments))
+		if (isNonEmptyArray(attachments))
 		{
-			oResult = _.find(aAttachments, function (oAttachment) {
-				return sContentLocation === oAttachment.contentLocation;
-			});
+			result = _.find(attachments, (item) => contentLocation === item.contentLocation);
 		}
 
-		return oResult || null;
-	};
-
+		return result || null;
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.messageId = function ()
-	{
+	messageId() {
 		return this.sMessageId;
-	};
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.inReplyTo = function ()
-	{
+	inReplyTo() {
 		return this.sInReplyTo;
-	};
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.references = function ()
-	{
+	references() {
 		return this.sReferences;
-	};
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.fromAsSingleEmail = function ()
-	{
-		return Utils.isArray(this.from) && this.from[0] ? this.from[0].email : '';
-	};
+	fromAsSingleEmail() {
+		return isArray(this.from) && this.from[0] ? this.from[0].email : '';
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.viewLink = function ()
-	{
-		return Links.messageViewLink(this.requestHash);
-	};
+	viewLink() {
+		return messageViewLink(this.requestHash);
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.downloadLink = function ()
-	{
-		return Links.messageDownloadLink(this.requestHash);
-	};
+	downloadLink() {
+		return messageDownloadLink(this.requestHash);
+	}
 
 	/**
-	 * @param {Object} oExcludeEmails
-	 * @param {boolean=} bLast = false
-	 * @return {Array}
+	 * @param {Object} excludeEmails
+	 * @param {boolean=} last = false
+	 * @returns {Array}
 	 */
-	MessageModel.prototype.replyEmails = function (oExcludeEmails, bLast)
-	{
-		var
-			aResult = [],
-			oUnic = Utils.isUnd(oExcludeEmails) ? {} : oExcludeEmails
-		;
+	replyEmails(excludeEmails, last = false) {
+		const
+			result = [],
+			unic = isUnd(excludeEmails) ? {} : excludeEmails;
 
-		MessageHelper.replyHelper(this.replyTo, oUnic, aResult);
-		if (0 === aResult.length)
+		replyHelper(this.replyTo, unic, result);
+		if (0 === result.length)
 		{
-			MessageHelper.replyHelper(this.from, oUnic, aResult);
+			replyHelper(this.from, unic, result);
 		}
 
-		if (0 === aResult.length && !bLast)
+		if (0 === result.length && !last)
 		{
 			return this.replyEmails({}, true);
 		}
 
-		return aResult;
-	};
+		return result;
+	}
 
 	/**
-	 * @param {Object} oExcludeEmails
-	 * @param {boolean=} bLast = false
-	 * @return {Array.<Array>}
+	 * @param {Object} excludeEmails
+	 * @param {boolean=} last = false
+	 * @returns {Array.<Array>}
 	 */
-	MessageModel.prototype.replyAllEmails = function (oExcludeEmails, bLast)
-	{
-		var
-			aData = [],
-			aToResult = [],
-			aCcResult = [],
-			oUnic = Utils.isUnd(oExcludeEmails) ? {} : oExcludeEmails
-		;
+	replyAllEmails(excludeEmails, last = false) {
+		let data = [];
+		const
+			toResult = [],
+			ccResult = [],
+			unic = isUnd(excludeEmails) ? {} : excludeEmails;
 
-		MessageHelper.replyHelper(this.replyTo, oUnic, aToResult);
-		if (0 === aToResult.length)
+		replyHelper(this.replyTo, unic, toResult);
+		if (0 === toResult.length)
 		{
-			MessageHelper.replyHelper(this.from, oUnic, aToResult);
+			replyHelper(this.from, unic, toResult);
 		}
 
-		MessageHelper.replyHelper(this.to, oUnic, aToResult);
-		MessageHelper.replyHelper(this.cc, oUnic, aCcResult);
+		replyHelper(this.to, unic, toResult);
+		replyHelper(this.cc, unic, ccResult);
 
-		if (0 === aToResult.length && !bLast)
+		if (0 === toResult.length && !last)
 		{
-			aData = this.replyAllEmails({}, true);
-			return [aData[0], aCcResult];
+			data = this.replyAllEmails({}, true);
+			return [data[0], ccResult];
 		}
 
-		return [aToResult, aCcResult];
-	};
+		return [toResult, ccResult];
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.textBodyToString = function ()
-	{
+	textBodyToString() {
 		return this.body ? this.body.html() : '';
-	};
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.attachmentsToStringLine = function ()
-	{
-		var aAttachLines = _.map(this.attachments(), function (oItem) {
-			return oItem.fileName + ' (' + oItem.friendlySize + ')';
-		});
-
-		return aAttachLines && 0 < aAttachLines.length ? aAttachLines.join(', ') : '';
-	};
+	attachmentsToStringLine() {
+		const attachLines = _.map(this.attachments(), (item) => item.fileName + ' (' + item.friendlySize + ')');
+		return attachLines && 0 < attachLines.length ? attachLines.join(', ') : '';
+	}
 
 	/**
-	 * @return {Object}
+	 * @param {boolean=} print = false
 	 */
-	MessageModel.prototype.getDataForWindowPopup = function ()
-	{
-		return {
-			'popupFrom': this.fromToLine(false),
-			'popupTo': this.toToLine(false),
-			'popupCc': this.ccToLine(false),
-			'popupBcc': this.bccToLine(false),
-			'popupReplyTo': this.replyToToLine(false),
-			'popupSubject': this.subject(),
-			'popupIsHtml': this.isHtml(),
-			'popupDate': require('Common/Momentor').format(this.dateTimeStampInUTC(), 'FULL'),
-			'popupAttachments': this.attachmentsToStringLine(),
-			'popupBody': this.textBodyToString()
-		};
-	};
+	viewPopupMessage(print = false) {
+		this.showLazyExternalImagesInBody();
 
-	/**
-	 * @param {boolean=} bPrint = false
-	 */
-	MessageModel.prototype.viewPopupMessage = function (bPrint)
-	{
-		Utils.windowPopupKnockout(this.getDataForWindowPopup(), 'PopupsWindowSimpleMessage',
-			this.subject(), function (oPopupWin)
-		{
-			if (oPopupWin && oPopupWin.document && oPopupWin.document.body)
-			{
-				$('img.lazy', oPopupWin.document.body).each(function (iIndex, oImg) {
+		const
+			timeStampInUTC = this.dateTimeStampInUTC() || 0,
+			ccLine = this.ccToLine(false),
+			m = 0 < timeStampInUTC ? moment.unix(timeStampInUTC) : null;
 
-					var
-						$oImg = $(oImg),
-						sOrig = $oImg.data('original'),
-						sSrc = $oImg.attr('src')
-						;
+		previewMessage({
+			title: this.subject(),
+			subject: this.subject(),
+			date: m ? m.format('LLL') : '',
+			fromCreds: this.fromToLine(false),
+			toLabel: i18n('MESSAGE/LABEL_TO'),
+			toCreds: this.toToLine(false),
+			ccClass: ccLine ? '' : 'rl-preview-hide',
+			ccLabel: i18n('MESSAGE/LABEL_CC'),
+			ccCreds: ccLine
+		}, this.body, this.isHtml(), print);
+	}
 
-					if (0 <= iIndex && sOrig && !sSrc)
-					{
-						$oImg.attr('src', sOrig);
-					}
-				});
-
-				if (bPrint)
-				{
-					window.setTimeout(function () {
-						oPopupWin.print();
-					}, 100);
-				}
-			}
-		});
-	};
-
-	MessageModel.prototype.printMessage = function ()
-	{
+	printMessage() {
 		this.viewPopupMessage(true);
-	};
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.generateUid = function ()
-	{
+	generateUid() {
 		return this.folderFullNameRaw + '/' + this.uid;
-	};
+	}
 
 	/**
-	 * @param {MessageModel} oMessage
-	 * @return {MessageModel}
+	 * @param {MessageModel} message
+	 * @returns {MessageModel}
 	 */
-	MessageModel.prototype.populateByMessageListItem = function (oMessage)
-	{
-		if (oMessage)
+	populateByMessageListItem(message) {
+		if (message)
 		{
-			this.folderFullNameRaw = oMessage.folderFullNameRaw;
-			this.uid = oMessage.uid;
-			this.hash = oMessage.hash;
-			this.requestHash = oMessage.requestHash;
-			this.subject(oMessage.subject());
+			this.folderFullNameRaw = message.folderFullNameRaw;
+			this.uid = message.uid;
+			this.hash = message.hash;
+			this.requestHash = message.requestHash;
+			this.subject(message.subject());
 		}
 
 		this.subjectPrefix(this.subjectPrefix());
 		this.subjectSuffix(this.subjectSuffix());
 
-		if (oMessage)
+		if (message)
 		{
+			this.size(message.size());
+			this.dateTimeStampInUTC(message.dateTimeStampInUTC());
+			this.priority(message.priority());
 
-			this.size(oMessage.size());
-			this.dateTimeStampInUTC(oMessage.dateTimeStampInUTC());
-			this.priority(oMessage.priority());
+			this.proxy = message.proxy;
 
-			this.proxy = oMessage.proxy;
+			this.fromEmailString(message.fromEmailString());
+			this.fromClearEmailString(message.fromClearEmailString());
+			this.toEmailsString(message.toEmailsString());
+			this.toClearEmailsString(message.toClearEmailsString());
 
-			this.fromEmailString(oMessage.fromEmailString());
-			this.fromClearEmailString(oMessage.fromClearEmailString());
-			this.toEmailsString(oMessage.toEmailsString());
-			this.toClearEmailsString(oMessage.toClearEmailsString());
+			this.emails = message.emails;
 
-			this.emails = oMessage.emails;
+			this.from = message.from;
+			this.to = message.to;
+			this.cc = message.cc;
+			this.bcc = message.bcc;
+			this.replyTo = message.replyTo;
+			this.deliveredTo = message.deliveredTo;
+			this.unsubsribeLinks = message.unsubsribeLinks;
 
-			this.from = oMessage.from;
-			this.to = oMessage.to;
-			this.cc = oMessage.cc;
-			this.bcc = oMessage.bcc;
-			this.replyTo = oMessage.replyTo;
-			this.deliveredTo = oMessage.deliveredTo;
+			this.unseen(message.unseen());
+			this.flagged(message.flagged());
+			this.answered(message.answered());
+			this.forwarded(message.forwarded());
+			this.isReadReceipt(message.isReadReceipt());
+			this.deletedMark(message.deletedMark());
 
-			this.unseen(oMessage.unseen());
-			this.flagged(oMessage.flagged());
-			this.answered(oMessage.answered());
-			this.forwarded(oMessage.forwarded());
-			this.isReadReceipt(oMessage.isReadReceipt());
-			this.deletedMark(oMessage.deletedMark());
+			this.priority(message.priority());
 
-			this.priority(oMessage.priority());
-
-			this.selected(oMessage.selected());
-			this.checked(oMessage.checked());
-			this.hasAttachments(oMessage.hasAttachments());
-			this.attachmentsSpecData(oMessage.attachmentsSpecData());
+			this.selected(message.selected());
+			this.checked(message.checked());
+			this.hasAttachments(message.hasAttachments());
+			this.attachmentsSpecData(message.attachmentsSpecData());
 		}
 
 		this.body = null;
@@ -838,50 +729,56 @@
 		this.sInReplyTo = '';
 		this.sReferences = '';
 
-		if (oMessage)
+		if (message)
 		{
-			this.threads(oMessage.threads());
+			this.threads(message.threads());
 		}
 
 		this.computeSenderEmail();
 
 		return this;
-	};
+	}
 
-	MessageModel.prototype.showExternalImages = function (bLazy)
-	{
+	showLazyExternalImagesInBody() {
+		if (this.body)
+		{
+			$('.lazy.lazy-inited[data-original]', this.body).each(function() {
+				$(this).attr('src', $(this).attr('data-original')).removeAttr('data-original'); // eslint-disable-line no-invalid-this
+			});
+		}
+	}
+
+	showExternalImages(lazy = false) {
 		if (this.body && this.body.data('rl-has-images'))
 		{
-			var sAttr = '';
-			bLazy = Utils.isUnd(bLazy) ? false : bLazy;
-
 			this.hasImages(false);
 			this.body.data('rl-has-images', false);
 
-			sAttr = this.proxy ? 'data-x-additional-src' : 'data-x-src';
-			$('[' + sAttr + ']', this.body).each(function () {
-				if (bLazy && $(this).is('img'))
+			let attr = this.proxy ? 'data-x-additional-src' : 'data-x-src';
+			$('[' + attr + ']', this.body).each(function() {
+				const $this = $(this); // eslint-disable-line no-invalid-this
+				if (lazy && $this.is('img'))
 				{
-					$(this)
+					$this
 						.addClass('lazy')
-						.attr('data-original', $(this).attr(sAttr))
-						.removeAttr(sAttr)
-						;
+						.attr('data-original', $this.attr(attr))
+						.removeAttr(attr);
 				}
 				else
 				{
-					$(this).attr('src', $(this).attr(sAttr)).removeAttr(sAttr);
+					$this.attr('src', $this.attr(attr)).removeAttr(attr);
 				}
 			});
 
-			sAttr = this.proxy ? 'data-x-additional-style-url' : 'data-x-style-url';
-			$('[' + sAttr + ']', this.body).each(function () {
-				var sStyle = Utils.trim($(this).attr('style'));
-				sStyle = '' === sStyle ? '' : (';' === sStyle.substr(-1) ? sStyle + ' ' : sStyle + '; ');
-				$(this).attr('style', sStyle + $(this).attr(sAttr)).removeAttr(sAttr);
+			attr = this.proxy ? 'data-x-additional-style-url' : 'data-x-style-url';
+			$('[' + attr + ']', this.body).each(function() {
+				const $this = $(this); // eslint-disable-line no-invalid-this
+				let style = trim($this.attr('style'));
+				style = '' === style ? '' : (';' === style.substr(-1) ? style + ' ' : style + '; ');
+				$this.attr('style', style + $this.attr(attr)).removeAttr(attr);
 			});
 
-			if (bLazy)
+			if (lazy)
 			{
 				$('img.lazy', this.body).addClass('lazy-inited').lazyload({
 					'threshold': 400,
@@ -890,88 +787,88 @@
 					'container': $('.RL-MailMessageView .messageView .messageItem .content')[0]
 				});
 
-				Globals.$win.resize();
+				$win.resize();
 			}
 
-			Utils.windowResize(500);
+			windowResize(500);
 		}
-	};
+	}
 
-	MessageModel.prototype.showInternalImages = function (bLazy)
-	{
+	showInternalImages(lazy = false) {
 		if (this.body && !this.body.data('rl-init-internal-images'))
 		{
 			this.body.data('rl-init-internal-images', true);
 
-			bLazy = Utils.isUnd(bLazy) ? false : bLazy;
+			const self = this;
 
-			var self = this;
+			$('[data-x-src-cid]', this.body).each(function() {
+				const
+					$this = $(this), // eslint-disable-line no-invalid-this
+					attachment = self.findAttachmentByCid($this.attr('data-x-src-cid'));
 
-			$('[data-x-src-cid]', this.body).each(function () {
-
-				var oAttachment = self.findAttachmentByCid($(this).attr('data-x-src-cid'));
-				if (oAttachment && oAttachment.download)
+				if (attachment && attachment.download)
 				{
-					if (bLazy && $(this).is('img'))
+					if (lazy && $this.is('img'))
 					{
-						$(this)
+						$this
 							.addClass('lazy')
-							.attr('data-original', oAttachment.linkPreview());
+							.attr('data-original', attachment.linkPreview());
 					}
 					else
 					{
-						$(this).attr('src', oAttachment.linkPreview());
+						$this.attr('src', attachment.linkPreview());
 					}
 				}
 			});
 
-			$('[data-x-src-location]', this.body).each(function () {
-
-				var oAttachment = self.findAttachmentByContentLocation($(this).attr('data-x-src-location'));
-				if (!oAttachment)
+			$('[data-x-src-location]', this.body).each(function() {
+				const $this = $(this); // eslint-disable-line no-invalid-this
+				let attachment = self.findAttachmentByContentLocation($this.attr('data-x-src-location'));
+				if (!attachment)
 				{
-					oAttachment = self.findAttachmentByCid($(this).attr('data-x-src-location'));
+					attachment = self.findAttachmentByCid($this.attr('data-x-src-location'));
 				}
 
-				if (oAttachment && oAttachment.download)
+				if (attachment && attachment.download)
 				{
-					if (bLazy && $(this).is('img'))
+					if (lazy && $this.is('img'))
 					{
-						$(this)
+						$this
 							.addClass('lazy')
-							.attr('data-original', oAttachment.linkPreview());
+							.attr('data-original', attachment.linkPreview());
 					}
 					else
 					{
-						$(this).attr('src', oAttachment.linkPreview());
+						$this.attr('src', attachment.linkPreview());
 					}
 				}
 			});
 
-			$('[data-x-style-cid]', this.body).each(function () {
+			$('[data-x-style-cid]', this.body).each(function() {
+				let
+					style = '',
+					name = '';
 
-				var
-					sStyle = '',
-					sName = '',
-					oAttachment = self.findAttachmentByCid($(this).attr('data-x-style-cid'))
-				;
+				const
+					$this = $(this), // eslint-disable-line no-invalid-this
+					attachment = self.findAttachmentByCid($this.attr('data-x-style-cid'));
 
-				if (oAttachment && oAttachment.linkPreview)
+				if (attachment && attachment.linkPreview)
 				{
-					sName = $(this).attr('data-x-style-cid-name');
-					if ('' !== sName)
+					name = $this.attr('data-x-style-cid-name');
+					if ('' !== name)
 					{
-						sStyle = Utils.trim($(this).attr('style'));
-						sStyle = '' === sStyle ? '' : (';' === sStyle.substr(-1) ? sStyle + ' ' : sStyle + '; ');
-						$(this).attr('style', sStyle + sName + ': url(\'' + oAttachment.linkPreview() + '\')');
+						style = trim($this.attr('style'));
+						style = '' === style ? '' : (';' === style.substr(-1) ? style + ' ' : style + '; ');
+						$this.attr('style', style + name + ': url(\'' + attachment.linkPreview() + '\')');
 					}
 				}
 			});
 
-			if (bLazy)
+			if (lazy)
 			{
-				(function ($oImg, oContainer) {
-					_.delay(function () {
+				(function($oImg, oContainer) {
+					_.delay(() => {
 						$oImg.addClass('lazy-inited').lazyload({
 							'threshold': 400,
 							'effect': 'fadeIn',
@@ -982,45 +879,39 @@
 				}($('img.lazy', self.body), $('.RL-MailMessageView .messageView .messageItem .content')[0]));
 			}
 
-			Utils.windowResize(500);
+			windowResize(500);
 		}
-	};
+	}
 
-	MessageModel.prototype.storeDataInDom = function ()
-	{
+	storeDataInDom() {
 		if (this.body)
 		{
 			this.body.data('rl-is-html', !!this.isHtml());
 			this.body.data('rl-has-images', !!this.hasImages());
 		}
-	};
+	}
 
-	MessageModel.prototype.fetchDataFromDom = function ()
-	{
+	fetchDataFromDom() {
 		if (this.body)
 		{
 			this.isHtml(!!this.body.data('rl-is-html'));
 			this.hasImages(!!this.body.data('rl-has-images'));
 		}
-	};
+	}
 
-	MessageModel.prototype.replacePlaneTextBody = function (sPlain)
-	{
+	replacePlaneTextBody(plain) {
 		if (this.body)
 		{
-			this.body.html(sPlain).addClass('b-text-part plain');
+			this.body.html(plain).addClass('b-text-part plain');
 		}
-	};
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	MessageModel.prototype.flagHash = function ()
-	{
-		return [this.deleted(), this.deletedMark(), this.unseen(), this.flagged(), this.answered(), this.forwarded(),
-			this.isReadReceipt()].join(',');
-	};
+	flagHash() {
+		return [this.deleted(), this.deletedMark(), this.unseen(), this.flagged(), this.answered(), this.forwarded(), this.isReadReceipt()].join(',');
+	}
+}
 
-	module.exports = MessageModel;
-
-}());
+export {MessageModel, MessageModel as default};

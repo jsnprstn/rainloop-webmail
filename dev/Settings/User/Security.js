@@ -1,73 +1,57 @@
 
-(function () {
+import _ from '_';
+import ko from 'ko';
 
-	'use strict';
+import {pInt, settingsSaveHelperSimpleFunction} from 'Common/Utils';
+import {Capa, SaveSettingsStep} from 'Common/Enums';
+import {i18n, trigger as translatorTrigger} from 'Common/Translator';
 
-	var
-		_ = require('_'),
-		ko = require('ko'),
+import {capa} from 'Storage/Settings';
 
-		Enums = require('Common/Enums'),
-		Utils = require('Common/Utils'),
-		Translator = require('Common/Translator'),
+import {showScreenPopup} from 'Knoin/Knoin';
 
-		SettinsStore = require('Stores/User/Settings'),
+import SettinsStore from 'Stores/User/Settings';
 
-		Settings = require('Storage/Settings'),
+import Remote from 'Remote/User/Ajax';
 
-		Remote = require('Remote/User/Ajax')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function SecurityUserSettings()
-	{
-		this.capaAutoLogout = Settings.capa(Enums.Capa.AutoLogout);
-		this.capaTwoFactor = Settings.capa(Enums.Capa.TwoFactor);
+class SecurityUserSettings
+{
+	constructor() {
+		this.capaAutoLogout = capa(Capa.AutoLogout);
+		this.capaTwoFactor = capa(Capa.TwoFactor);
 
 		this.autoLogout = SettinsStore.autoLogout;
-		this.autoLogout.trigger = ko.observable(Enums.SaveSettingsStep.Idle);
+		this.autoLogout.trigger = ko.observable(SaveSettingsStep.Idle);
 
-		this.autoLogoutOptions = ko.computed(function () {
-			Translator.trigger();
+		this.autoLogoutOptions = ko.computed(() => {
+			translatorTrigger();
 			return [
-				{'id': 0, 'name': Translator.i18n('SETTINGS_SECURITY/AUTOLOGIN_NEVER_OPTION_NAME')},
-				{'id': 5, 'name': Translator.i18n('SETTINGS_SECURITY/AUTOLOGIN_MINUTES_OPTION_NAME', {'MINUTES': 5})},
-				{'id': 10, 'name': Translator.i18n('SETTINGS_SECURITY/AUTOLOGIN_MINUTES_OPTION_NAME', {'MINUTES': 10})},
-				{'id': 30, 'name': Translator.i18n('SETTINGS_SECURITY/AUTOLOGIN_MINUTES_OPTION_NAME', {'MINUTES': 30})},
-				{'id': 60, 'name': Translator.i18n('SETTINGS_SECURITY/AUTOLOGIN_MINUTES_OPTION_NAME', {'MINUTES': 60})}
+				{'id': 0, 'name': i18n('SETTINGS_SECURITY/AUTOLOGIN_NEVER_OPTION_NAME')},
+				{'id': 5, 'name': i18n('SETTINGS_SECURITY/AUTOLOGIN_MINUTES_OPTION_NAME', {'MINUTES': 5})},
+				{'id': 10, 'name': i18n('SETTINGS_SECURITY/AUTOLOGIN_MINUTES_OPTION_NAME', {'MINUTES': 10})},
+				{'id': 30, 'name': i18n('SETTINGS_SECURITY/AUTOLOGIN_MINUTES_OPTION_NAME', {'MINUTES': 30})},
+				{'id': 60, 'name': i18n('SETTINGS_SECURITY/AUTOLOGIN_MINUTES_OPTION_NAME', {'MINUTES': 60})},
+				{'id': 60 * 2, 'name': i18n('SETTINGS_SECURITY/AUTOLOGIN_HOURS_OPTION_NAME', {'HOURS': 2})},
+				{'id': 60 * 5, 'name': i18n('SETTINGS_SECURITY/AUTOLOGIN_HOURS_OPTION_NAME', {'HOURS': 5})},
+				{'id': 60 * 10, 'name': i18n('SETTINGS_SECURITY/AUTOLOGIN_HOURS_OPTION_NAME', {'HOURS': 10})}
 			];
 		});
 	}
 
-	SecurityUserSettings.prototype.configureTwoFactor = function ()
-	{
-		require('Knoin/Knoin').showScreenPopup(require('View/Popup/TwoFactorConfiguration'));
-	};
+	configureTwoFactor() {
+		showScreenPopup(require('View/Popup/TwoFactorConfiguration'));
+	}
 
-	SecurityUserSettings.prototype.onBuild = function ()
-	{
+	onBuild() {
 		if (this.capaAutoLogout)
 		{
-			var self = this;
+			_.delay(() => {
+				const f0 = settingsSaveHelperSimpleFunction(this.autoLogout.trigger, this);
 
-			_.delay(function () {
-
-				var
-					f0 = Utils.settingsSaveHelperSimpleFunction(self.autoLogout.trigger, self)
-				;
-
-				self.autoLogout.subscribe(function (sValue) {
-					Remote.saveSettings(f0, {
-						'AutoLogout': Utils.pInt(sValue)
-					});
-				});
-
+				this.autoLogout.subscribe(Remote.saveSettingsHelper('AutoLogout', pInt, f0));
 			});
 		}
-	};
+	}
+}
 
-	module.exports = SecurityUserSettings;
-
-}());
+export {SecurityUserSettings, SecurityUserSettings as default};

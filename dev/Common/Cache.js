@@ -1,412 +1,348 @@
 
-(function () {
+import _ from '_';
+import {Capa, MessageSetAction} from 'Common/Enums';
+import {trim, pInt, isArray} from 'Common/Utils';
+import * as Links from 'Common/Links';
+import * as Settings from 'Storage/Settings';
 
-	'use strict';
+let FOLDERS_CACHE = {},
+	FOLDERS_NAME_CACHE = {},
+	FOLDERS_HASH_CACHE = {},
+	FOLDERS_UID_NEXT_CACHE = {},
+	MESSAGE_FLAGS_CACHE = {},
+	NEW_MESSAGE_CACHE = {},
+	inboxFolderName = '';
 
-	var
-		_ = require('_'),
+const REQUESTED_MESSAGE_CACHE = {},
+	capaGravatar = Settings.capa(Capa.Gravatar);
 
-		Enums = require('Common/Enums'),
-		Utils = require('Common/Utils'),
-		Links = require('Common/Links'),
+/**
+ * @returns {void}
+ */
+export function clear()
+{
+	FOLDERS_CACHE = {};
+	FOLDERS_NAME_CACHE = {};
+	FOLDERS_HASH_CACHE = {};
+	FOLDERS_UID_NEXT_CACHE = {};
+	MESSAGE_FLAGS_CACHE = {};
+}
 
-		Settings = require('Storage/Settings')
-	;
+/**
+ * @param {string} email
+ * @param {Function} callback
+ * @returns {string}
+ */
+export function getUserPic(email, callback)
+{
+	email = trim(email);
+	callback(capaGravatar && '' !== email ? Links.avatarLink(email) : '', email);
+}
 
-	/**
-	 * @constructor
-	 */
-	function CacheUserStorage()
+/**
+ * @param {string} folderFullNameRaw
+ * @param {string} uid
+ * @returns {string}
+ */
+export function getMessageKey(folderFullNameRaw, uid)
+{
+	return `${folderFullNameRaw}#${uid}`;
+}
+
+/**
+ * @param {string} folder
+ * @param {string} uid
+ */
+export function addRequestedMessage(folder, uid)
+{
+	REQUESTED_MESSAGE_CACHE[getMessageKey(folder, uid)] = true;
+}
+
+/**
+ * @param {string} folder
+ * @param {string} uid
+ * @returns {boolean}
+ */
+export function hasRequestedMessage(folder, uid)
+{
+	return true === REQUESTED_MESSAGE_CACHE[getMessageKey(folder, uid)];
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ * @param {string} uid
+ */
+export function addNewMessageCache(folderFullNameRaw, uid)
+{
+	NEW_MESSAGE_CACHE[getMessageKey(folderFullNameRaw, uid)] = true;
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ * @param {string} uid
+ */
+export function hasNewMessageAndRemoveFromCache(folderFullNameRaw, uid)
+{
+	if (NEW_MESSAGE_CACHE[getMessageKey(folderFullNameRaw, uid)])
 	{
-		this.oFoldersCache = {};
-		this.oFoldersNamesCache = {};
-		this.oFolderHashCache = {};
-		this.oFolderUidNextCache = {};
-		this.oMessageListHashCache = {};
-		this.oMessageFlagsCache = {};
-		this.oNewMessage = {};
-		this.oRequestedMessage = {};
+		NEW_MESSAGE_CACHE[getMessageKey(folderFullNameRaw, uid)] = null;
+		return true;
+	}
+	return false;
+}
 
-		this.bCapaGravatar = Settings.capa(Enums.Capa.Gravatar);
+/**
+ * @returns {void}
+ */
+export function clearNewMessageCache()
+{
+	NEW_MESSAGE_CACHE = {};
+}
+
+/**
+ * @returns {string}
+ */
+export function getFolderInboxName()
+{
+	return '' === inboxFolderName ? 'INBOX' : inboxFolderName;
+}
+
+/**
+ * @param {string} folderHash
+ * @returns {string}
+ */
+export function getFolderFullNameRaw(folderHash)
+{
+	return '' !== folderHash && FOLDERS_NAME_CACHE[folderHash] ? FOLDERS_NAME_CACHE[folderHash] : '';
+}
+
+/**
+ * @param {string} folderHash
+ * @param {string} folderFullNameRaw
+ */
+export function setFolderFullNameRaw(folderHash, folderFullNameRaw)
+{
+	FOLDERS_NAME_CACHE[folderHash] = folderFullNameRaw;
+	if ('INBOX' === folderFullNameRaw || '' === inboxFolderName)
+	{
+		inboxFolderName = folderFullNameRaw;
+	}
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ * @returns {string}
+ */
+export function getFolderHash(folderFullNameRaw)
+{
+	return '' !== folderFullNameRaw && FOLDERS_HASH_CACHE[folderFullNameRaw] ? FOLDERS_HASH_CACHE[folderFullNameRaw] : '';
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ * @param {string} folderHash
+ */
+export function setFolderHash(folderFullNameRaw, folderHash)
+{
+	if ('' !== folderFullNameRaw)
+	{
+		FOLDERS_HASH_CACHE[folderFullNameRaw] = folderHash;
+	}
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ * @returns {string}
+ */
+export function getFolderUidNext(folderFullNameRaw)
+{
+	return '' !== folderFullNameRaw && FOLDERS_UID_NEXT_CACHE[folderFullNameRaw] ? FOLDERS_UID_NEXT_CACHE[folderFullNameRaw] : '';
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ * @param {string} uidNext
+ */
+export function setFolderUidNext(folderFullNameRaw, uidNext)
+{
+	FOLDERS_UID_NEXT_CACHE[folderFullNameRaw] = uidNext;
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ * @returns {?FolderModel}
+ */
+export function getFolderFromCacheList(folderFullNameRaw)
+{
+	return '' !== folderFullNameRaw && FOLDERS_CACHE[folderFullNameRaw] ? FOLDERS_CACHE[folderFullNameRaw] : null;
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ * @param {?FolderModel} folder
+ */
+export function setFolderToCacheList(folderFullNameRaw, folder)
+{
+	FOLDERS_CACHE[folderFullNameRaw] = folder;
+}
+
+/**
+ * @param {string} folderFullNameRaw
+ */
+export function removeFolderFromCacheList(folderFullNameRaw)
+{
+	setFolderToCacheList(folderFullNameRaw, null);
+}
+
+/**
+ * @param {string} folderFullName
+ * @param {string} uid
+ * @returns {?Array}
+ */
+export function getMessageFlagsFromCache(folderFullName, uid)
+{
+	return MESSAGE_FLAGS_CACHE[folderFullName] && MESSAGE_FLAGS_CACHE[folderFullName][uid] ?
+		MESSAGE_FLAGS_CACHE[folderFullName][uid] : null;
+}
+
+/**
+ * @param {string} folderFullName
+ * @param {string} uid
+ * @param {Array} flagsCache
+ */
+export function setMessageFlagsToCache(folderFullName, uid, flagsCache)
+{
+	if (!MESSAGE_FLAGS_CACHE[folderFullName])
+	{
+		MESSAGE_FLAGS_CACHE[folderFullName] = {};
 	}
 
-	/**
-	 * @type {boolean}
-	 */
-	CacheUserStorage.prototype.bCapaGravatar = false;
+	MESSAGE_FLAGS_CACHE[folderFullName][uid] = flagsCache;
+}
 
-	/**
-	 * @type {Object}
-	 */
-	CacheUserStorage.prototype.oFoldersCache = {};
+/**
+ * @param {string} folderFullName
+ */
+export function clearMessageFlagsFromCacheByFolder(folderFullName)
+{
+	MESSAGE_FLAGS_CACHE[folderFullName] = {};
+}
 
-	/**
-	 * @type {Object}
-	 */
-	CacheUserStorage.prototype.oFoldersNamesCache = {};
+/**
+ * @param {(MessageModel|null)} message
+ */
+export function initMessageFlagsFromCache(message)
+{
 
-	/**
-	 * @type {Object}
-	 */
-	CacheUserStorage.prototype.oFolderHashCache = {};
-
-	/**
-	 * @type {Object}
-	 */
-	CacheUserStorage.prototype.oFolderUidNextCache = {};
-
-	/**
-	 * @type {Object}
-	 */
-	CacheUserStorage.prototype.oMessageListHashCache = {};
-
-	/**
-	 * @type {Object}
-	 */
-	CacheUserStorage.prototype.oMessageFlagsCache = {};
-
-	/**
-	 * @type {Object}
-	 */
-	CacheUserStorage.prototype.oNewMessage = {};
-
-	/**
-	 * @type {Object}
-	 */
-	CacheUserStorage.prototype.oRequestedMessage = {};
-
-	CacheUserStorage.prototype.clear = function ()
+	if (message)
 	{
-		this.oFoldersCache = {};
-		this.oFoldersNamesCache = {};
-		this.oFolderHashCache = {};
-		this.oFolderUidNextCache = {};
-		this.oMessageListHashCache = {};
-		this.oMessageFlagsCache = {};
-	};
+		const
+			uid = message.uid,
+			flags = getMessageFlagsFromCache(message.folderFullNameRaw, uid);
 
-	/**
-	 * @param {string} sEmail
-	 * @param {Function} fCallback
-	 * @return {string}
-	 */
-	CacheUserStorage.prototype.getUserPic = function (sEmail, fCallback)
-	{
-		sEmail = Utils.trim(sEmail);
-		fCallback(this.bCapaGravatar && '' !== sEmail ? Links.avatarLink(sEmail) : '', sEmail);
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @param {string} sUid
-	 * @return {string}
-	 */
-	CacheUserStorage.prototype.getMessageKey = function (sFolderFullNameRaw, sUid)
-	{
-		return sFolderFullNameRaw + '#' + sUid;
-	};
-
-	/**
-	 * @param {string} sFolder
-	 * @param {string} sUid
-	 */
-	CacheUserStorage.prototype.addRequestedMessage = function (sFolder, sUid)
-	{
-		this.oRequestedMessage[this.getMessageKey(sFolder, sUid)] = true;
-	};
-
-	/**
-	 * @param {string} sFolder
-	 * @param {string} sUid
-	 * @return {boolean}
-	 */
-	CacheUserStorage.prototype.hasRequestedMessage = function (sFolder, sUid)
-	{
-		return true === this.oRequestedMessage[this.getMessageKey(sFolder, sUid)];
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @param {string} sUid
-	 */
-	CacheUserStorage.prototype.addNewMessageCache = function (sFolderFullNameRaw, sUid)
-	{
-		this.oNewMessage[this.getMessageKey(sFolderFullNameRaw, sUid)] = true;
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @param {string} sUid
-	 */
-	CacheUserStorage.prototype.hasNewMessageAndRemoveFromCache = function (sFolderFullNameRaw, sUid)
-	{
-		if (this.oNewMessage[this.getMessageKey(sFolderFullNameRaw, sUid)])
+		if (flags && 0 < flags.length)
 		{
-			this.oNewMessage[this.getMessageKey(sFolderFullNameRaw, sUid)] = null;
-			return true;
-		}
+			message.flagged(!!flags[1]);
 
-		return false;
-	};
-
-	CacheUserStorage.prototype.clearNewMessageCache = function ()
-	{
-		this.oNewMessage = {};
-	};
-
-	/**
-	 * @type {string}
-	 */
-	CacheUserStorage.prototype.sInboxFolderName = '';
-
-	/**
-	 * @return {string}
-	 */
-	CacheUserStorage.prototype.getFolderInboxName = function ()
-	{
-		return '' === this.sInboxFolderName ? 'INBOX' : this.sInboxFolderName;
-	};
-
-	/**
-	 * @param {string} sFolderHash
-	 * @return {string}
-	 */
-	CacheUserStorage.prototype.getFolderFullNameRaw = function (sFolderHash)
-	{
-		return '' !== sFolderHash && this.oFoldersNamesCache[sFolderHash] ? this.oFoldersNamesCache[sFolderHash] : '';
-	};
-
-	/**
-	 * @param {string} sFolderHash
-	 * @param {string} sFolderFullNameRaw
-	 */
-	CacheUserStorage.prototype.setFolderFullNameRaw = function (sFolderHash, sFolderFullNameRaw)
-	{
-		this.oFoldersNamesCache[sFolderHash] = sFolderFullNameRaw;
-		if ('INBOX' === sFolderFullNameRaw || '' === this.sInboxFolderName)
-		{
-			this.sInboxFolderName = sFolderFullNameRaw;
-		}
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @return {string}
-	 */
-	CacheUserStorage.prototype.getFolderHash = function (sFolderFullNameRaw)
-	{
-		return '' !== sFolderFullNameRaw && this.oFolderHashCache[sFolderFullNameRaw] ? this.oFolderHashCache[sFolderFullNameRaw] : '';
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @param {string} sFolderHash
-	 */
-	CacheUserStorage.prototype.setFolderHash = function (sFolderFullNameRaw, sFolderHash)
-	{
-		if ('' !== sFolderFullNameRaw)
-		{
-			this.oFolderHashCache[sFolderFullNameRaw] = sFolderHash;
-		}
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @return {string}
-	 */
-	CacheUserStorage.prototype.getFolderUidNext = function (sFolderFullNameRaw)
-	{
-		return '' !== sFolderFullNameRaw && this.oFolderUidNextCache[sFolderFullNameRaw] ? this.oFolderUidNextCache[sFolderFullNameRaw] : '';
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @param {string} sUidNext
-	 */
-	CacheUserStorage.prototype.setFolderUidNext = function (sFolderFullNameRaw, sUidNext)
-	{
-		this.oFolderUidNextCache[sFolderFullNameRaw] = sUidNext;
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @return {?FolderModel}
-	 */
-	CacheUserStorage.prototype.getFolderFromCacheList = function (sFolderFullNameRaw)
-	{
-		return '' !== sFolderFullNameRaw && this.oFoldersCache[sFolderFullNameRaw] ? this.oFoldersCache[sFolderFullNameRaw] : null;
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 * @param {?FolderModel} oFolder
-	 */
-	CacheUserStorage.prototype.setFolderToCacheList = function (sFolderFullNameRaw, oFolder)
-	{
-		this.oFoldersCache[sFolderFullNameRaw] = oFolder;
-	};
-
-	/**
-	 * @param {string} sFolderFullNameRaw
-	 */
-	CacheUserStorage.prototype.removeFolderFromCacheList = function (sFolderFullNameRaw)
-	{
-		this.setFolderToCacheList(sFolderFullNameRaw, null);
-	};
-
-	/**
-	 * @param {string} sFolderFullName
-	 * @param {string} sUid
-	 * @return {?Array}
-	 */
-	CacheUserStorage.prototype.getMessageFlagsFromCache = function (sFolderFullName, sUid)
-	{
-		return this.oMessageFlagsCache[sFolderFullName] && this.oMessageFlagsCache[sFolderFullName][sUid] ?
-			this.oMessageFlagsCache[sFolderFullName][sUid] : null;
-	};
-
-	/**
-	 * @param {string} sFolderFullName
-	 * @param {string} sUid
-	 * @param {Array} aFlagsCache
-	 */
-	CacheUserStorage.prototype.setMessageFlagsToCache = function (sFolderFullName, sUid, aFlagsCache)
-	{
-		if (!this.oMessageFlagsCache[sFolderFullName])
-		{
-			this.oMessageFlagsCache[sFolderFullName] = {};
-		}
-
-		this.oMessageFlagsCache[sFolderFullName][sUid] = aFlagsCache;
-	};
-
-	/**
-	 * @param {string} sFolderFullName
-	 */
-	CacheUserStorage.prototype.clearMessageFlagsFromCacheByFolder = function (sFolderFullName)
-	{
-		this.oMessageFlagsCache[sFolderFullName] = {};
-	};
-
-	/**
-	 * @param {(MessageModel|null)} oMessage
-	 */
-	CacheUserStorage.prototype.initMessageFlagsFromCache = function (oMessage)
-	{
-		if (oMessage)
-		{
-			var
-				self = this,
-				sUid = oMessage.uid,
-				aFlags = this.getMessageFlagsFromCache(oMessage.folderFullNameRaw, sUid),
-				mUnseenSubUid = null,
-				mFlaggedSubUid = null
-			;
-
-			if (aFlags && 0 < aFlags.length)
+			if (!message.isSimpleMessage)
 			{
-				oMessage.flagged(!!aFlags[1]);
+				message.unseen(!!flags[0]);
+				message.answered(!!flags[2]);
+				message.forwarded(!!flags[3]);
+				message.isReadReceipt(!!flags[4]);
+				message.deletedMark(!!flags[5]);
+			}
+		}
 
-				if (!oMessage.__simple_message__)
-				{
-					oMessage.unseen(!!aFlags[0]);
-					oMessage.answered(!!aFlags[2]);
-					oMessage.forwarded(!!aFlags[3]);
-					oMessage.isReadReceipt(!!aFlags[4]);
-					oMessage.deletedMark(!!aFlags[5]);
+		if (0 < message.threads().length)
+		{
+			const unseenSubUid = _.find(message.threads(), (sSubUid) => {
+				if (uid !== sSubUid) {
+					const subFlags = getMessageFlagsFromCache(message.folderFullNameRaw, sSubUid);
+					return subFlags && 0 < subFlags.length && !!subFlags[0];
 				}
-			}
+				return false;
+			});
 
-			if (0 < oMessage.threads().length)
-			{
-				mUnseenSubUid = _.find(oMessage.threads(), function (sSubUid) {
-					if (sUid === sSubUid){
-						return false;
-					}
-					var aFlags = self.getMessageFlagsFromCache(oMessage.folderFullNameRaw, sSubUid);
-					return aFlags && 0 < aFlags.length && !!aFlags[0];
-				});
+			const flaggedSubUid = _.find(message.threads(), (sSubUid) => {
+				if (uid !== sSubUid) {
+					const subFlags = getMessageFlagsFromCache(message.folderFullNameRaw, sSubUid);
+					return subFlags && 0 < subFlags.length && !!subFlags[1];
+				}
+				return false;
+			});
 
-				mFlaggedSubUid = _.find(oMessage.threads(), function (sSubUid) {
-					if (sUid === sSubUid){
-						return false;
-					}
-					var aFlags = self.getMessageFlagsFromCache(oMessage.folderFullNameRaw, sSubUid);
-					return aFlags && 0 < aFlags.length && !!aFlags[1];
-				});
-
-				oMessage.hasUnseenSubMessage(mUnseenSubUid && 0 < Utils.pInt(mUnseenSubUid));
-				oMessage.hasFlaggedSubMessage(mFlaggedSubUid && 0 < Utils.pInt(mFlaggedSubUid));
-			}
+			message.hasUnseenSubMessage(unseenSubUid && 0 < pInt(unseenSubUid));
+			message.hasFlaggedSubMessage(flaggedSubUid && 0 < pInt(flaggedSubUid));
 		}
-	};
+	}
+}
 
-	/**
-	 * @param {(MessageModel|null)} oMessage
-	 */
-	CacheUserStorage.prototype.storeMessageFlagsToCache = function (oMessage)
+/**
+ * @param {(MessageModel|null)} message
+ */
+export function storeMessageFlagsToCache(message)
+{
+	if (message)
 	{
-		if (oMessage)
-		{
-			this.setMessageFlagsToCache(
-				oMessage.folderFullNameRaw,
-				oMessage.uid,
-				[oMessage.unseen(), oMessage.flagged(), oMessage.answered(), oMessage.forwarded(),
-					oMessage.isReadReceipt(),  oMessage.deletedMark()]
-			);
-		}
-	};
+		setMessageFlagsToCache(
+			message.folderFullNameRaw, message.uid,
+			[message.unseen(), message.flagged(), message.answered(), message.forwarded(),
+				message.isReadReceipt(), message.deletedMark()]
+		);
+	}
+}
 
-	/**
-	 * @param {string} sFolder
-	 * @param {string} sUid
-	 * @param {Array} aFlags
-	 */
-	CacheUserStorage.prototype.storeMessageFlagsToCacheByFolderAndUid = function (sFolder, sUid, aFlags)
+/**
+ * @param {string} folder
+ * @param {string} uid
+ * @param {Array} flags
+ */
+export function storeMessageFlagsToCacheByFolderAndUid(folder, uid, flags)
+{
+	if (isArray(flags) && 0 < flags.length)
 	{
-		if (Utils.isArray(aFlags) && 0 < aFlags.length)
-		{
-			this.setMessageFlagsToCache(sFolder, sUid, aFlags);
-		}
-	};
+		setMessageFlagsToCache(folder, uid, flags);
+	}
+}
 
-	/**
-	 * @param {string} sFolder
-	 * @param {string} sUid
-	 * @param {number} iSetAction
-	 */
-	CacheUserStorage.prototype.storeMessageFlagsToCacheBySetAction = function (sFolder, sUid, iSetAction)
+/**
+ * @param {string} folder
+ * @param {string} uid
+ * @param {number} setAction
+ */
+export function storeMessageFlagsToCacheBySetAction(folder, uid, setAction)
+{
+
+	let unread = 0;
+	const flags = getMessageFlagsFromCache(folder, uid);
+
+	if (isArray(flags) && 0 < flags.length)
 	{
-		var iUnread = 0, aFlags = this.getMessageFlagsFromCache(sFolder, sUid);
-		if (Utils.isArray(aFlags) && 0 < aFlags.length)
+		if (flags[0])
 		{
-			if (aFlags[0])
-			{
-				iUnread = 1;
-			}
-
-			switch (iSetAction)
-			{
-				case Enums.MessageSetAction.SetSeen:
-					aFlags[0] = false;
-					break;
-				case Enums.MessageSetAction.UnsetSeen:
-					aFlags[0] = true;
-					break;
-				case Enums.MessageSetAction.SetFlag:
-					aFlags[1] = true;
-					break;
-				case Enums.MessageSetAction.UnsetFlag:
-					aFlags[1] = false;
-					break;
-			}
-
-			this.setMessageFlagsToCache(sFolder, sUid, aFlags);
+			unread = 1;
 		}
 
-		return iUnread;
-	};
+		switch (setAction)
+		{
+			case MessageSetAction.SetSeen:
+				flags[0] = false;
+				break;
+			case MessageSetAction.UnsetSeen:
+				flags[0] = true;
+				break;
+			case MessageSetAction.SetFlag:
+				flags[1] = true;
+				break;
+			case MessageSetAction.UnsetFlag:
+				flags[1] = false;
+				break;
+			// no default
+		}
 
-	module.exports = new CacheUserStorage();
+		setMessageFlagsToCache(folder, uid, flags);
+	}
 
-}());
+	return unread;
+}

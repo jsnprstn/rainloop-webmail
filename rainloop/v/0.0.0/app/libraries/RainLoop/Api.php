@@ -101,6 +101,9 @@ class Api
 			\MailSo\Config::$LargeThreadLimit =
 				(int) \RainLoop\Api::Config()->Get('labs', 'imap_large_thread_limit', 50);
 
+			\MailSo\Config::$ImapTimeout =
+				(int) \RainLoop\Api::Config()->Get('labs', 'imap_timeout', 300);
+
 			\MailSo\Config::$BoundaryPrefix = '_RainLoop_';
 
 			\MailSo\Config::$SystemLogger = \RainLoop\Api::Logger();
@@ -109,6 +112,10 @@ class Api
 			$sSslCapath = \RainLoop\Api::Config()->Get('ssl', 'capath', '');
 
 			\RainLoop\Utils::$CookieDefaultPath = \RainLoop\Api::Config()->Get('labs', 'cookie_default_path', '');
+			if (\RainLoop\Api::Config()->Get('labs', 'cookie_default_secure', false))
+			{
+				\RainLoop\Utils::$CookieDefaultSecure = true;
+			}
 
 			if (!empty($sSslCafile) || !empty($sSslCapath))
 			{
@@ -126,6 +133,54 @@ class Api
 						}
 					}
 				});
+			}
+
+			\MailSo\Config::$HtmlStrictDebug = !!\RainLoop\Api::Config()->Get('debug', 'enable', false);
+
+			\MailSo\Config::$CheckNewMessages = !!\RainLoop\Api::Config()->Get('labs', 'check_new_messages', true);
+
+			if (\RainLoop\Api::Config()->Get('labs', 'strict_html_parser', true))
+			{
+				\MailSo\Config::$HtmlStrictAllowedAttributes = array(
+					// rainloop
+					'data-wrp',
+					// defaults
+					'name',
+					'dir', 'lang', 'style', 'title',
+					'background', 'bgcolor', 'alt', 'height', 'width', 'src', 'href',
+					'border', 'bordercolor', 'charset', 'direction', 'language',
+					// a
+					'coords', 'download', 'hreflang', 'shape',
+					// body
+					'alink', 'bgproperties', 'bottommargin', 'leftmargin', 'link', 'rightmargin', 'text', 'topmargin', 'vlink',
+					'marginwidth', 'marginheight', 'offset',
+					// button,
+					'disabled', 'type', 'value',
+					// col
+					'align', 'valign',
+					// font
+					'color', 'face', 'size',
+					// form
+					'novalidate',
+					// hr
+					'noshade',
+					// img
+					'hspace', 'sizes', 'srcset', 'vspace', 'usemap',
+					// input, textarea
+					'checked', 'max', 'min', 'maxlength', 'multiple', 'pattern', 'placeholder', 'readonly', 'required', 'step', 'wrap',
+					// label
+					'for',
+					// meter
+					'low', 'high', 'optimum',
+					// ol
+					'reversed', 'start',
+					// option
+					'selected', 'label',
+					// table
+					'cols', 'rows', 'frame', 'rules', 'summary', 'cellpadding', 'cellspacing',
+					// td
+					'abbr', 'axis', 'colspan', 'rowspan', 'headers', 'nowrap'
+				);
 			}
 		}
 	}
@@ -148,7 +203,7 @@ class Api
 	 */
 	public static function GetUserSsoHash($sEmail, $sPassword, $aAdditionalOptions = array(), $bUseTimeout = true)
 	{
-		$sSsoHash = \MailSo\Base\Utils::Sha1Rand($sEmail.$sPassword);
+		$sSsoHash = \MailSo\Base\Utils::Sha1Rand(\md5($sEmail).\md5($sPassword));
 
 		return \RainLoop\Api::Actions()->Cacher()->Set(\RainLoop\KeyPathHelper::SsoCacherKey($sSsoHash),
 			\RainLoop\Utils::EncodeKeyValuesQ(array(

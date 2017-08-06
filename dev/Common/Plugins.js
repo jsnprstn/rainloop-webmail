@@ -1,144 +1,109 @@
 
-(function () {
+import _ from '_';
+import {isFunc, isArray, isUnd} from 'Common/Utils';
+import {data as GlobalsData} from 'Common/Globals';
+import * as Settings from 'Storage/Settings';
 
-	'use strict';
+const
+	SIMPLE_HOOKS = {},
+	USER_VIEW_MODELS_HOOKS = [],
+	ADMIN_VIEW_MODELS_HOOKS = [];
 
-	var
-		_ = require('_'),
-
-		Globals = require('Common/Globals'),
-		Utils = require('Common/Utils')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function Plugins()
+/**
+ * @param {string} name
+ * @param {Function} callback
+ */
+export function addHook(name, callback)
+{
+	if (isFunc(callback))
 	{
-		this.oSettings = require('Storage/Settings');
-		this.oSimpleHooks = {};
+		if (!isArray(SIMPLE_HOOKS[name]))
+		{
+			SIMPLE_HOOKS[name] = [];
+		}
 
-		this.aUserViewModelsHooks = [];
-		this.aAdminViewModelsHooks = [];
+		SIMPLE_HOOKS[name].push(callback);
 	}
+}
 
-	/**
-	 * @type {Object}
-	 */
-	Plugins.prototype.oSettings = {};
-
-	/**
-	 * @type {Array}
-	 */
-	Plugins.prototype.aUserViewModelsHooks = [];
-
-	/**
-	 * @type {Array}
-	 */
-	Plugins.prototype.aAdminViewModelsHooks = [];
-
-	/**
-	 * @type {Object}
-	 */
-	Plugins.prototype.oSimpleHooks = {};
-
-	/**
-	 * @param {string} sName
-	 * @param {Function} fCallback
-	 */
-	Plugins.prototype.addHook = function (sName, fCallback)
+/**
+ * @param {string} name
+ * @param {Array=} args = []
+ */
+export function runHook(name, args = [])
+{
+	if (isArray(SIMPLE_HOOKS[name]))
 	{
-		if (Utils.isFunc(fCallback))
-		{
-			if (!Utils.isArray(this.oSimpleHooks[sName]))
-			{
-				this.oSimpleHooks[sName] = [];
-			}
-
-			this.oSimpleHooks[sName].push(fCallback);
-		}
-	};
-
-	/**
-	 * @param {string} sName
-	 * @param {Array=} aArguments
-	 */
-	Plugins.prototype.runHook = function (sName, aArguments)
-	{
-		if (Utils.isArray(this.oSimpleHooks[sName]))
-		{
-			aArguments = aArguments || [];
-
-			_.each(this.oSimpleHooks[sName], function (fCallback) {
-				fCallback.apply(null, aArguments);
-			});
-		}
-	};
-
-	/**
-	 * @param {string} sName
-	 * @return {?}
-	 */
-	Plugins.prototype.mainSettingsGet = function (sName)
-	{
-		return this.oSettings.settingsGet(sName);
-	};
-
-	/**
-	 * @param {Function} fCallback
-	 * @param {string} sAction
-	 * @param {Object=} oParameters
-	 * @param {?number=} iTimeout
-	 */
-	Plugins.prototype.remoteRequest = function (fCallback, sAction, oParameters, iTimeout)
-	{
-		if (Globals.__APP__)
-		{
-			Globals.__APP__.remote().defaultRequest(fCallback, 'Plugin' + sAction, oParameters, iTimeout);
-		}
-	};
-
-	/**
-	 * @param {Function} SettingsViewModelClass
-	 * @param {string} sLabelName
-	 * @param {string} sTemplate
-	 * @param {string} sRoute
-	 */
-	Plugins.prototype.addSettingsViewModel = function (SettingsViewModelClass, sTemplate, sLabelName, sRoute)
-	{
-		this.aUserViewModelsHooks.push([SettingsViewModelClass, sTemplate, sLabelName, sRoute]);
-	};
-
-	/**
-	 * @param {Function} SettingsViewModelClass
-	 * @param {string} sLabelName
-	 * @param {string} sTemplate
-	 * @param {string} sRoute
-	 */
-	Plugins.prototype.addSettingsViewModelForAdmin = function (SettingsViewModelClass, sTemplate, sLabelName, sRoute)
-	{
-		this.aAdminViewModelsHooks.push([SettingsViewModelClass, sTemplate, sLabelName, sRoute]);
-	};
-
-	Plugins.prototype.runSettingsViewModelHooks = function (bAdmin)
-	{
-		_.each(bAdmin ? this.aAdminViewModelsHooks : this.aUserViewModelsHooks, function (aView) {
-			require('Knoin/Knoin').addSettingsViewModel(aView[0], aView[1], aView[2], aView[3]);
+		_.each(SIMPLE_HOOKS[name], (callback) => {
+			callback(...args);
 		});
-	};
+	}
+}
 
-	/**
-	 * @param {string} sPluginSection
-	 * @param {string} sName
-	 * @return {?}
-	 */
-	Plugins.prototype.settingsGet = function (sPluginSection, sName)
+/**
+ * @param {string} name
+ * @returns {?}
+ */
+export function mainSettingsGet(name)
+{
+	return Settings.settingsGet(name);
+}
+
+/**
+ * @param {Function} callback
+ * @param {string} action
+ * @param {Object=} parameters
+ * @param {?number=} timeout
+ */
+export function remoteRequest(callback, action, parameters, timeout)
+{
+	if (GlobalsData.__APP__)
 	{
-		var oPlugin = this.oSettings.settingsGet('Plugins');
-		oPlugin = oPlugin && !Utils.isUnd(oPlugin[sPluginSection]) ? oPlugin[sPluginSection] : null;
-		return oPlugin ? (Utils.isUnd(oPlugin[sName]) ? null : oPlugin[sName]) : null;
-	};
+		GlobalsData.__APP__.remote().defaultRequest(callback, 'Plugin' + action, parameters, timeout);
+	}
+}
 
-	module.exports = new Plugins();
+/**
+ * @param {Function} SettingsViewModelClass
+ * @param {string} labelName
+ * @param {string} template
+ * @param {string} route
+ */
+export function addSettingsViewModel(SettingsViewModelClass, template, labelName, route)
+{
+	USER_VIEW_MODELS_HOOKS.push([SettingsViewModelClass, template, labelName, route]);
+}
 
-}());
+/**
+ * @param {Function} SettingsViewModelClass
+ * @param {string} labelName
+ * @param {string} template
+ * @param {string} route
+ */
+export function addSettingsViewModelForAdmin(SettingsViewModelClass, template, labelName, route)
+{
+	ADMIN_VIEW_MODELS_HOOKS.push([SettingsViewModelClass, template, labelName, route]);
+}
+
+/**
+ * @param {boolean} admin
+ */
+export function runSettingsViewModelHooks(admin)
+{
+	const Knoin = require('Knoin/Knoin');
+	_.each(admin ? ADMIN_VIEW_MODELS_HOOKS : USER_VIEW_MODELS_HOOKS, (view) => {
+		Knoin.addSettingsViewModel(view[0], view[1], view[2], view[3]);
+	});
+}
+
+/**
+ * @param {string} pluginSection
+ * @param {string} name
+ * @returns {?}
+ */
+export function settingsGet(pluginSection, name)
+{
+	let plugins = Settings.settingsGet('Plugins');
+	plugins = plugins && !isUnd(plugins[pluginSection]) ? plugins[pluginSection] : null;
+	return plugins ? (isUnd(plugins[name]) ? null : plugins[name]) : null;
+}

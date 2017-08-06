@@ -175,6 +175,11 @@ END;
 	public static function NormalizeCharset($sEncoding, $bAsciAsUtf8 = false)
 	{
 		$sEncoding = \strtolower($sEncoding);
+
+		$sEncoding = \preg_replace('/^iso8/', 'iso-8', $sEncoding);
+		$sEncoding = \preg_replace('/^cp-([\d])/', 'cp$1', $sEncoding);
+		$sEncoding = \preg_replace('/^windows?12/', 'windows-12', $sEncoding);
+
 		switch ($sEncoding)
 		{
 			case 'asci':
@@ -185,6 +190,8 @@ END;
 					\MailSo\Base\Enumerations\Charset::ISO_8859_1;
 				break;
 			case 'unicode-1-1-utf-7':
+			case 'unicode-1-utf-7':
+			case 'unicode-utf-7':
 				$sEncoding = \MailSo\Base\Enumerations\Charset::UTF_7;
 				break;
 			case 'utf8':
@@ -555,6 +562,22 @@ END;
 	 *
 	 * @return string
 	 */
+	public static function StrMailDomainToLowerIfAscii($sValue)
+	{
+		$aParts = \explode('@', $sValue, 2);
+		if (!empty($aParts[1]))
+		{
+			$aParts[1] = \MailSo\Base\Utils::IsAscii($aParts[1]) ? \strtolower($aParts[1]) : $aParts[1];
+		}
+
+		return \implode('@', $aParts);
+	}
+
+	/**
+	 * @param string $sValue
+	 *
+	 * @return string
+	 */
 	public static function StripSpaces($sValue)
 	{
 		return \MailSo\Base\Utils::Trim(
@@ -765,7 +788,7 @@ END;
 			{
 				if (0 < \strlen($sLine))
 				{
-					$sFirst = $sLine{1};
+					$sFirst = \substr($sLine,0,1);
 					if (' ' === $sFirst || "\t" === $sFirst)
 					{
 						if (!$bSkip)
@@ -1253,6 +1276,13 @@ END;
 	 */
 	public static function ResetTimeLimit($iTimeToReset = 15, $iTimeToAdd = 120)
 	{
+		$iTime = \time();
+		if ($iTime < \MailSo\Base\Loader::$InitTime + 5)
+		{
+			// do nothing first 5s
+			return true;
+		}
+
 		static $bValidateAction = null;
 		static $iResetTimer = null;
 
@@ -1266,10 +1296,15 @@ END;
 			$bValidateAction = !$bSafeMode && \MailSo\Base\Utils::FunctionExistsAndEnabled('set_time_limit');
 		}
 
-		if ($bValidateAction && $iTimeToReset < \time() - $iResetTimer)
+		if ($bValidateAction && $iTimeToReset < $iTime - $iResetTimer)
 		{
-			$iResetTimer = \time();
-			\set_time_limit($iTimeToAdd);
+			$iResetTimer = $iTime;
+			if (!@\set_time_limit($iTimeToAdd))
+			{
+				$bValidateAction = false;
+				return false;
+			}
+
 			return true;
 		}
 
@@ -1686,7 +1721,7 @@ END;
 	 */
 	public static function UrlSafeBase64Encode($sValue)
 	{
-		return \str_replace(array('+', '/', '='), array('-', '_', '.'), \base64_encode($sValue));
+		return \rtrim(\strtr(\base64_encode($sValue), '+/', '-_'), '=');
 	}
 
 	/**
@@ -1696,14 +1731,8 @@ END;
 	 */
 	public static function UrlSafeBase64Decode($sValue)
 	{
-		$sData = \str_replace(array('-', '_', '.'), array('+', '/', '='), $sValue);
-		$sMode = \strlen($sData) % 4;
-		if ($sMode)
-		{
-			$sData .= \substr('====', $sMode);
-		}
-
-		return \MailSo\Base\Utils::Base64Decode($sData);
+		$sValue = \rtrim(\strtr($sValue, '-_.', '+/='), '=');
+		return \MailSo\Base\Utils::Base64Decode(\str_pad($sValue, \strlen($sValue) + (\strlen($sValue) % 4), '=', STR_PAD_RIGHT));
 	}
 
 	/**
@@ -2334,41 +2363,47 @@ END;
 	}
 
 	/**
-     * @param string $sData
-     * @param string $sKey
+	 * @param string $sData
+	 * @param string $sKey
 	 *
-     * @return string
-     */
-    public static function Hmac($sData, $sKey)
-    {
-        if (\function_exists('hash_hmac'))
+	 * @return string
+	 */
+	public static function Hmac($sData, $sKey)
+	{
+		if (\function_exists('hash_hmac'))
 		{
-            return \hash_hmac('md5', $sData, $sKey);
-        }
+			return \hash_hmac('md5', $sData, $sKey);
+		}
 
-        $iLen = 64;
-        if ($iLen < \strlen($sKey))
+		$iLen = 64;
+		if ($iLen < \strlen($sKey))
 		{
-            $sKey = \pack('H*', \md5($sKey));
-        }
+			$sKey = \pack('H*', \md5($sKey));
+		}
 
-        $sKey = \str_pad($sKey, $iLen, \chr(0x00));
-        $sIpad = \str_pad('', $iLen, \chr(0x36));
-        $sOpad = \str_pad('', $iLen, \chr(0x5c));
+		$sKey = \str_pad($sKey, $iLen, \chr(0x00));
+		$sIpad = \str_pad('', $iLen, \chr(0x36));
+		$sOpad = \str_pad('', $iLen, \chr(0x5c));
 
-        return \md5(($sKey ^ $sOpad).\pack('H*', \md5(($sKey ^ $sIpad).$sData)));
-    }
+		return \md5(($sKey ^ $sOpad).\pack('H*', \md5(($sKey ^ $sIpad).$sData)));
+	}
 
 	/**
 	 * @param string $sDomain
+	 * @param bool $bSimple = false
 	 *
 	 * @return bool
 	 */
-	public static function ValidateDomain($sDomain)
+	public static function ValidateDomain($sDomain, $bSimple = false)
 	{
 		$aMatch = array();
+		if ($bSimple)
+		{
+			return \preg_match('/.+(\.[a-zA-Z]+)$/', $sDomain, $aMatch) && !empty($aMatch[1]);
+		}
+
 		return \preg_match('/.+(\.[a-zA-Z]+)$/', $sDomain, $aMatch) && !empty($aMatch[1]) && \in_array($aMatch[1], \explode(' ',
-			'.academy .actor .agency .audio .bar .beer .bike .blue .boutique .cab .camera .camp .capital .cards .careers .cash .catering .center .cheap .city .cleaning .clinic .clothing .club .coffee .community .company .computer .construction .consulting .contractors .cool .credit .dance .dating .democrat .dental .diamonds .digital .direct .directory .discount .domains .education .email .energy .equipment .estate .events .expert .exposed .fail .farm .fish .fitness .florist .fund .futbol .gallery .gift .glass .graphics .guru .help .holdings .holiday .host .hosting .house .institute .international .kitchen .land .life .lighting .limo .link .management .market .marketing .media .menu .moda .partners .parts .photo .photography .photos .pics .pink .press .productions .pub .red .rentals .repair .report .rest .sexy .shoes .social .solar .solutions .space .support .systems .tattoo .tax .technology .tips .today .tools .town .toys .trade .training .university .uno .vacations .vision .vodka .voyage .watch .webcam .wiki .work .works .wtf .zone .aero .asia .biz .cat .com .coop .edu .gov .info .int .jobs .mil .mobi .museum .name .net .org .pro .tel .travel .xxx '.
+			'.academy .actor .agency .audio .bar .beer .bike .blue .boutique .cab .camera .camp .capital .cards .careers .cash .catering .center .cheap .city .cleaning .clinic .clothing .club .coffee .community .company .computer .construction .consulting .contractors .cool .credit .dance .dating .democrat .dental .diamonds .digital .direct .directory .discount .domains .education .email .energy .equipment .estate .events .expert .exposed .fail .farm .fish .fitness .florist .fund .futbol .gallery .gift .glass .graphics .guru .help .holdings .holiday .host .hosting .house .institute .international .kitchen .land .life .lighting .limo .link .management .market .marketing .media .menu .moda .partners .parts .photo .photography .photos .pics .pink .press .productions .pub .red .rentals .repair .report .rest .sexy .shoes .social .solar .solutions .space .support .systems .tattoo .tax .technology .tips .today .tools .town .toys .trade .training .university .uno .vacations .vision .vodka .voyage .watch .webcam .wiki .work .works .wtf .zone .aero .asia .biz .cat .com .coop .edu .gov .info .int .jobs .mil .mobi .museum .name .net .org .pro .tel .travel .xxx .xyz '.
 			'.ac .ad .ae .af .ag .ai .al .am .an .ao .aq .ar .as .at .au .aw .ax .az .ba .bb .bd .be .bf .bg .bh .bi .bj .bm .bn .bo .br .bs .bt .bv .bw .by .bz .ca .cc .cd .cf .cg .ch .ci .ck .cl .cm .cn .co .cr .cs .cu .cv .cx .cy .cz .dd .de .dj .dk .dm .do .dz .ec .ee .eg .er .es .et .eu .fi .fj .fk .fm .fo .fr .ga .gb .gd .ge .gf .gg .gh .gi .gl .gm .gn .gp .gq .gr .gs .gt .gu .gw .gy .hk .hm .hn .hr .ht .hu .id .ie .il .im .in .io .iq .ir .is .it .je .jm .jo .jp .ke .kg .kh .ki .km .kn .kp .kr .kw .ky .kz .la .lb .lc .li .lk .lr .ls .lt .lu .lv .ly .ma .mc .md .me .mg .mh .mk .ml .mm .mn .mo .mp .mq .mr .ms .mt .mu .mv .mw .mx .my .mz .na .nc .ne .nf .ng .ni .nl .no .np .nr .nu .nz .om .pa .pe .pf .pg .ph .pk .pl .pm .pn .pr .ps .pt .pw .py .qa .re .ro .rs .ru . .rw .sa .sb .sc .sd .se .sg .sh .si .sj .sk .sl .sm .sn .so .sr .st .su .sv .sy .sz .tc .td .tf .tg .th .tj .tk .tl .tm .tn .to .tp .tr .tt .tv .tw .tz .ua .ug .uk .us .uy .uz .va .vc .ve .vg .vi .vn .vu .wf .ws .ye .yt .za .zm .zw'
 		));
 	}
@@ -2393,6 +2428,7 @@ END;
 		{
 			include_once MAILSO_LIBRARY_ROOT_PATH.'Vendors/Net/IDNA2.php';
 			$oIdn = new \Net_IDNA2();
+			$oIdn->setParams('utf8', true);
 		}
 
 		return $oIdn;
@@ -2406,7 +2442,7 @@ END;
 	 */
 	public static function IdnToUtf8($sStr, $bLowerIfAscii = false)
 	{
-		if (0 < \strlen($sStr) && \preg_match('/(^|\.)xn--/i', $sStr))
+		if (0 < \strlen($sStr) && \preg_match('/(^|\.|@)xn--/i', $sStr))
 		{
 			try
 			{
@@ -2415,7 +2451,7 @@ END;
 			catch (\Exception $oException) {}
 		}
 
-		return $bLowerIfAscii ? \MailSo\Base\Utils::StrToLowerIfAscii($sStr) : $sStr;
+		return $bLowerIfAscii ? \MailSo\Base\Utils::StrMailDomainToLowerIfAscii($sStr) : $sStr;
 	}
 
 	/**
@@ -2426,7 +2462,7 @@ END;
 	 */
 	public static function IdnToAscii($sStr, $bLowerIfAscii = false)
 	{
-		$sStr = $bLowerIfAscii ? \MailSo\Base\Utils::StrToLowerIfAscii($sStr) : $sStr;
+		$sStr = $bLowerIfAscii ? \MailSo\Base\Utils::StrMailDomainToLowerIfAscii($sStr) : $sStr;
 
 		$sUser = '';
 		$sDomain = $sStr;

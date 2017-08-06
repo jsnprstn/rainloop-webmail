@@ -1,47 +1,50 @@
 
-(function () {
+import ko from 'ko';
+import {Focused, KeyState} from 'Common/Enums';
 
-	'use strict';
+import {keyScope, leftPanelDisabled} from 'Common/Globals';
+import {isNonEmptyArray} from 'Common/Utils';
 
-	var
-		ko = require('ko'),
+import * as Settings from 'Storage/Settings';
 
-		Enums = require('Common/Enums'),
-		Globals = require('Common/Globals'),
-		Utils = require('Common/Utils'),
+import {AbstractAppStore} from 'Stores/AbstractApp';
 
-		Settings = require('Storage/Settings'),
-
-		AppStore = require('Stores/App')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function AppUserStore()
-	{
-		AppStore.call(this);
+class AppUserStore extends AbstractAppStore
+{
+	constructor() {
+		super();
 
 		this.currentAudio = ko.observable('');
 
-		this.focusedState = ko.observable(Enums.Focused.None);
+		this.focusedState = ko.observable(Focused.None);
 
-		this.focusedState.subscribe(function (mValue) {
+		const isMobile = Settings.appSettingsGet('mobile');
 
-			switch (mValue)
+		this.focusedState.subscribe((value) => {
+			switch (value)
 			{
-				case Enums.Focused.MessageList:
-					Globals.keyScope(Enums.KeyState.MessageList);
+				case Focused.MessageList:
+					keyScope(KeyState.MessageList);
+					if (isMobile) {
+						leftPanelDisabled(true);
+					}
 					break;
-				case Enums.Focused.MessageView:
-					Globals.keyScope(Enums.KeyState.MessageView);
+				case Focused.MessageView:
+					keyScope(KeyState.MessageView);
+					if (isMobile) {
+						leftPanelDisabled(true);
+					}
 					break;
-				case Enums.Focused.FolderList:
-					Globals.keyScope(Enums.KeyState.FolderList);
+				case Focused.FolderList:
+					keyScope(KeyState.FolderList);
+					if (isMobile) {
+						leftPanelDisabled(false);
+					}
+					break;
+				default:
 					break;
 			}
-
-		}, this);
+		});
 
 		this.projectHash = ko.observable('');
 		this.threadsAllowed = ko.observable(false);
@@ -59,9 +62,9 @@
 		this.devPassword = '';
 	}
 
-	AppUserStore.prototype.populate = function()
-	{
-		AppStore.prototype.populate.call(this);
+	populate() {
+
+		super.populate();
 
 		this.projectHash(Settings.settingsGet('ProjectHash'));
 
@@ -70,13 +73,12 @@
 
 		this.contactsIsAllowed(!!Settings.settingsGet('ContactsIsAllowed'));
 
-		var mAttachmentsActions = Settings.settingsGet('AttachmentsActions');
-		this.attachmentsActions(Utils.isNonEmptyArray(mAttachmentsActions) ? mAttachmentsActions : []);
+		const attachmentsActions = Settings.appSettingsGet('attachmentsActions');
+		this.attachmentsActions(isNonEmptyArray(attachmentsActions) ? attachmentsActions : []);
 
 		this.devEmail = Settings.settingsGet('DevEmail');
 		this.devPassword = Settings.settingsGet('DevPassword');
-	};
+	}
+}
 
-	module.exports = new AppUserStore();
-
-}());
+export default new AppUserStore();

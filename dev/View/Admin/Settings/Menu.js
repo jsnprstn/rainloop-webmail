@@ -1,75 +1,39 @@
 
-(function () {
+import $ from '$';
+import key from 'key';
 
-	'use strict';
+import {leftPanelDisabled} from 'Common/Globals';
+import {KeyState} from 'Common/Enums';
 
-	var
-		_ = require('_'),
+import {view, ViewType, settingsMenuKeysHendler} from 'Knoin/Knoin';
+import {AbstractViewNext} from 'Knoin/AbstractViewNext';
 
-		Globals = require('Common/Globals'),
-
-		kn = require('Knoin/Knoin'),
-		AbstractView = require('Knoin/AbstractView')
-	;
-
+@view({
+	name: 'View/Admin/Settings/Menu',
+	type: ViewType.Left,
+	templateID: 'AdminMenu'
+})
+class MenuSettingsAdminView extends AbstractViewNext
+{
 	/**
-	 * @param {?} oScreen
-	 *
-	 * @constructor
-	 * @extends AbstractView
+	 * @param {?} screen
 	 */
-	function MenuSettingsAdminView(oScreen)
-	{
-		AbstractView.call(this, 'Left', 'AdminMenu');
+	constructor(screen) {
 
-		this.leftPanelDisabled = Globals.leftPanelDisabled;
+		super();
 
-		this.menu = oScreen.menu;
+		this.leftPanelDisabled = leftPanelDisabled;
 
-		kn.constructorEnd(this);
+		this.menu = screen.menu;
 	}
 
-	kn.extendAsViewModel(['View/Admin/Settings/Menu', 'AdminSettingsMenuViewModel'], MenuSettingsAdminView);
-	_.extend(MenuSettingsAdminView.prototype, AbstractView.prototype);
+	link(route) {
+		return '#/' + route;
+	}
 
-	MenuSettingsAdminView.prototype.link = function (sRoute)
-	{
-		return '#/' + sRoute;
-	};
+	onBuild(dom) {
+		key('up, down', KeyState.Settings, settingsMenuKeysHendler($('.b-admin-menu .e-item', dom)));
+	}
+}
 
-	MenuSettingsAdminView.prototype.onBuild = function (oDom)
-	{
-		key('up, down', _.throttle(function (event, handler) {
-
-			var
-				sH = '',
-				iIndex = -1,
-				bUp = handler && 'up' === handler.shortcut,
-				$items = $('.b-admin-menu .e-item', oDom)
-			;
-
-			if (event && $items.length)
-			{
-				iIndex = $items.index($items.filter('.selected'));
-				if (bUp && iIndex > 0)
-				{
-					iIndex--;
-				}
-				else if (!bUp && iIndex < $items.length - 1)
-				{
-					iIndex++;
-				}
-
-				sH = $items.eq(iIndex).attr('href');
-				if (sH)
-				{
-					kn.setHash(sH, false, true);
-				}
-			}
-
-		}, 200));
-	};
-
-	module.exports = MenuSettingsAdminView;
-
-}());
+export {MenuSettingsAdminView, MenuSettingsAdminView as default};

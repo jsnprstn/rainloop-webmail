@@ -1,35 +1,241 @@
 
-(function () {
+import window from 'window';
+import _ from '_';
+import ko from 'ko';
 
-	'use strict';
+import {FileType} from 'Common/Enums';
+import {bAllowPdfPreview, data as GlobalsData} from 'Common/Globals';
+import {trim, pInt, inArray, isNonEmptyArray, getFileExtension, friendlySize} from 'Common/Utils';
+import {attachmentDownload, attachmentPreview, attachmentFramed, attachmentPreviewAsPlain, attachmentThumbnailPreview} from 'Common/Links';
 
-	var
-		window = require('window'),
-		_ = require('_'),
-		ko = require('ko'),
+import {AbstractModel} from 'Knoin/AbstractModel';
 
-		Enums = require('Common/Enums'),
-		Globals = require('Common/Globals'),
-		Utils = require('Common/Utils'),
-		Links = require('Common/Links'),
-		Audio = require('Common/Audio'),
+import Audio from 'Common/Audio';
 
-		AbstractModel = require('Knoin/AbstractModel')
-	;
+/**
+ * @param {string} sExt
+ * @param {string} sMimeType
+ * @returns {string}
+ */
+export const staticFileType = _.memoize((ext, mimeType) => {
+	ext = trim(ext).toLowerCase();
+	mimeType = trim(mimeType).toLowerCase();
 
-	/**
-	 * @constructor
-	 */
-	function AttachmentModel()
+	let result = FileType.Unknown;
+	const mimeTypeParts = mimeType.split('/');
+
+	switch (true)
 	{
-		AbstractModel.call(this, 'AttachmentModel');
+		case 'image' === mimeTypeParts[0] || -1 < inArray(ext, [
+			'png', 'jpg', 'jpeg', 'gif', 'bmp'
+		]):
+			result = FileType.Image;
+			break;
+		case 'audio' === mimeTypeParts[0] || -1 < inArray(ext, [
+			'mp3', 'ogg', 'oga', 'wav'
+		]):
+			result = FileType.Audio;
+			break;
+		case 'video' === mimeTypeParts[0] || -1 < inArray(ext, [
+			'mkv', 'avi'
+		]):
+			result = FileType.Video;
+			break;
+		case -1 < inArray(ext, [
+			'php', 'js', 'css'
+		]):
+			result = FileType.Code;
+			break;
+		case 'eml' === ext || -1 < inArray(mimeType, [
+			'message/delivery-status', 'message/rfc822'
+		]):
+			result = FileType.Eml;
+			break;
+		case ('text' === mimeTypeParts[0] && 'html' !== mimeTypeParts[1]) || -1 < inArray(ext, [
+			'txt', 'log'
+		]):
+			result = FileType.Text;
+			break;
+		case ('text/html' === mimeType) || -1 < inArray(ext, [
+			'html'
+		]):
+			result = FileType.Html;
+			break;
+		case -1 < inArray(mimeTypeParts[1], [
+			'zip', '7z', 'tar', 'rar', 'gzip', 'bzip', 'bzip2', 'x-zip', 'x-7z', 'x-rar', 'x-tar', 'x-gzip', 'x-bzip', 'x-bzip2', 'x-zip-compressed', 'x-7z-compressed', 'x-rar-compressed'
+		]) || -1 < inArray(ext, ['zip', '7z', 'tar', 'rar', 'gzip', 'bzip', 'bzip2']):
+			result = FileType.Archive;
+			break;
+		case -1 < inArray(mimeTypeParts[1], ['pdf', 'x-pdf']) || -1 < inArray(ext, ['pdf']):
+			result = FileType.Pdf;
+			break;
+		case -1 < inArray(mimeType, [
+			'application/pgp-signature', 'application/pgp-keys'
+		]) || -1 < inArray(ext, ['asc', 'pem', 'ppk']):
+			result = FileType.Certificate;
+			break;
+		case -1 < inArray(mimeType, ['application/pkcs7-signature']) ||
+			-1 < inArray(ext, ['p7s']):
+
+			result = FileType.CertificateBin;
+			break;
+		case -1 < inArray(mimeTypeParts[1], [
+			'rtf', 'msword', 'vnd.msword', 'vnd.openxmlformats-officedocument.wordprocessingml.document',
+			'vnd.openxmlformats-officedocument.wordprocessingml.template',
+			'vnd.ms-word.document.macroEnabled.12',
+			'vnd.ms-word.template.macroEnabled.12'
+		]):
+			result = FileType.WordText;
+			break;
+		case -1 < inArray(mimeTypeParts[1], [
+			'excel', 'ms-excel', 'vnd.ms-excel',
+			'vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+			'vnd.openxmlformats-officedocument.spreadsheetml.template',
+			'vnd.ms-excel.sheet.macroEnabled.12',
+			'vnd.ms-excel.template.macroEnabled.12',
+			'vnd.ms-excel.addin.macroEnabled.12',
+			'vnd.ms-excel.sheet.binary.macroEnabled.12'
+		]):
+			result = FileType.Sheet;
+			break;
+		case -1 < inArray(mimeTypeParts[1], [
+			'powerpoint', 'ms-powerpoint', 'vnd.ms-powerpoint',
+			'vnd.openxmlformats-officedocument.presentationml.presentation',
+			'vnd.openxmlformats-officedocument.presentationml.template',
+			'vnd.openxmlformats-officedocument.presentationml.slideshow',
+			'vnd.ms-powerpoint.addin.macroEnabled.12',
+			'vnd.ms-powerpoint.presentation.macroEnabled.12',
+			'vnd.ms-powerpoint.template.macroEnabled.12',
+			'vnd.ms-powerpoint.slideshow.macroEnabled.12'
+		]):
+			result = FileType.Presentation;
+			break;
+		// no default
+	}
+
+	return result;
+});
+
+/**
+ * @param {string} sFileType
+ * @returns {string}
+ */
+export const staticIconClass = _.memoize((fileType) => {
+	let
+		resultText = '',
+		resultClass = 'icon-file';
+
+	switch (fileType)
+	{
+		case FileType.Text:
+		case FileType.Eml:
+		case FileType.WordText:
+			resultClass = 'icon-file-text';
+			break;
+		case FileType.Html:
+		case FileType.Code:
+			resultClass = 'icon-file-code';
+			break;
+		case FileType.Image:
+			resultClass = 'icon-file-image';
+			break;
+		case FileType.Audio:
+			resultClass = 'icon-file-music';
+			break;
+		case FileType.Video:
+			resultClass = 'icon-file-movie';
+			break;
+		case FileType.Archive:
+			resultClass = 'icon-file-zip';
+			break;
+		case FileType.Certificate:
+		case FileType.CertificateBin:
+			resultClass = 'icon-file-certificate';
+			break;
+		case FileType.Sheet:
+			resultClass = 'icon-file-excel';
+			break;
+		case FileType.Presentation:
+			resultClass = 'icon-file-chart-graph';
+			break;
+		case FileType.Pdf:
+			resultText = 'pdf';
+			resultClass = 'icon-none';
+			break;
+		// no default
+	}
+
+	return [resultClass, resultText];
+});
+
+/**
+ * @static
+ * @param {string} sFileType
+ * @returns {string}
+ */
+export const staticCombinedIconClass = (data) => {
+	let
+		result = '',
+		types = [];
+
+	if (isNonEmptyArray(data))
+	{
+		result = 'icon-attachment';
+		types = _.uniq(_.compact(_.map(data, (item) => (item ? staticFileType(getFileExtension(item[0]), item[1]) : ''))));
+
+		if (types && 1 === types.length && types[0])
+		{
+			switch (types[0])
+			{
+				case FileType.Text:
+				case FileType.WordText:
+					result = 'icon-file-text';
+					break;
+				case FileType.Html:
+				case FileType.Code:
+					result = 'icon-file-code';
+					break;
+				case FileType.Image:
+					result = 'icon-file-image';
+					break;
+				case FileType.Audio:
+					result = 'icon-file-music';
+					break;
+				case FileType.Video:
+					result = 'icon-file-movie';
+					break;
+				case FileType.Archive:
+					result = 'icon-file-zip';
+					break;
+				case FileType.Certificate:
+				case FileType.CertificateBin:
+					result = 'icon-file-certificate';
+					break;
+				case FileType.Sheet:
+					result = 'icon-file-excel';
+					break;
+				case FileType.Presentation:
+					result = 'icon-file-chart-graph';
+					break;
+				// no default
+			}
+		}
+	}
+
+	return result;
+};
+
+class AttachmentModel extends AbstractModel
+{
+	constructor() {
+		super('AttachmentModel');
 
 		this.checked = ko.observable(false);
 
 		this.mimeType = '';
 		this.fileName = '';
 		this.fileNameExt = '';
-		this.fileType = Enums.FileType.Unknown;
+		this.fileType = FileType.Unknown;
 		this.estimatedSize = 0;
 		this.friendlySize = '';
 		this.isInline = false;
@@ -45,509 +251,230 @@
 		this.framed = false;
 	}
 
-	_.extend(AttachmentModel.prototype, AbstractModel.prototype);
-
 	/**
 	 * @static
-	 * @param {AjaxJsonAttachment} oJsonAttachment
-	 * @return {?AttachmentModel}
+	 * @param {AjaxJsonAttachment} json
+	 * @returns {?AttachmentModel}
 	 */
-	AttachmentModel.newInstanceFromJson = function (oJsonAttachment)
-	{
-		var oAttachmentModel = new AttachmentModel();
-		return oAttachmentModel.initByJson(oJsonAttachment) ? oAttachmentModel : null;
-	};
-
-	AttachmentModel.prototype.mimeType = '';
-	AttachmentModel.prototype.fileName = '';
-	AttachmentModel.prototype.fileType = '';
-	AttachmentModel.prototype.fileNameExt = '';
-	AttachmentModel.prototype.estimatedSize = 0;
-	AttachmentModel.prototype.friendlySize = '';
-	AttachmentModel.prototype.isInline = false;
-	AttachmentModel.prototype.isLinked = false;
-	AttachmentModel.prototype.isThumbnail = false;
-	AttachmentModel.prototype.cid = '';
-	AttachmentModel.prototype.cidWithOutTags = '';
-	AttachmentModel.prototype.contentLocation = '';
-	AttachmentModel.prototype.download = '';
-	AttachmentModel.prototype.folder = '';
-	AttachmentModel.prototype.uid = '';
-	AttachmentModel.prototype.mimeIndex = '';
-	AttachmentModel.prototype.framed = false;
+	static newInstanceFromJson(json) {
+		const attachment = new AttachmentModel();
+		return attachment.initByJson(json) ? attachment : null;
+	}
 
 	/**
-	 * @param {AjaxJsonAttachment} oJsonAttachment
+	 * @param {AjaxJsonAttachment} json
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.initByJson = function (oJsonAttachment)
-	{
-		var bResult = false;
-		if (oJsonAttachment && 'Object/Attachment' === oJsonAttachment['@Object'])
+	initByJson(json) {
+		let bResult = false;
+		if (json && 'Object/Attachment' === json['@Object'])
 		{
-			this.mimeType = Utils.trim((oJsonAttachment.MimeType || '').toLowerCase());
-			this.fileName = Utils.trim(oJsonAttachment.FileName);
-			this.estimatedSize = Utils.pInt(oJsonAttachment.EstimatedSize);
-			this.isInline = !!oJsonAttachment.IsInline;
-			this.isLinked = !!oJsonAttachment.IsLinked;
-			this.isThumbnail = !!oJsonAttachment.IsThumbnail;
-			this.cid = oJsonAttachment.CID;
-			this.contentLocation = oJsonAttachment.ContentLocation;
-			this.download = oJsonAttachment.Download;
+			this.mimeType = trim((json.MimeType || '').toLowerCase());
+			this.fileName = trim(json.FileName);
+			this.estimatedSize = pInt(json.EstimatedSize);
+			this.isInline = !!json.IsInline;
+			this.isLinked = !!json.IsLinked;
+			this.isThumbnail = !!json.IsThumbnail;
+			this.cid = json.CID;
+			this.contentLocation = json.ContentLocation;
+			this.download = json.Download;
 
-			this.folder = oJsonAttachment.Folder;
-			this.uid = oJsonAttachment.Uid;
-			this.mimeIndex = oJsonAttachment.MimeIndex;
-			this.framed = !!oJsonAttachment.Framed;
+			this.folder = json.Folder;
+			this.uid = json.Uid;
+			this.mimeIndex = json.MimeIndex;
+			this.framed = !!json.Framed;
 
-			this.friendlySize = Utils.friendlySize(this.estimatedSize);
+			this.friendlySize = friendlySize(this.estimatedSize);
 			this.cidWithOutTags = this.cid.replace(/^<+/, '').replace(/>+$/, '');
 
-			this.fileNameExt = Utils.getFileExtension(this.fileName);
-			this.fileType = AttachmentModel.staticFileType(this.fileNameExt, this.mimeType);
+			this.fileNameExt = getFileExtension(this.fileName);
+			this.fileType = staticFileType(this.fileNameExt, this.mimeType);
 
 			bResult = true;
 		}
 
 		return bResult;
-	};
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.isImage = function ()
-	{
-		return Enums.FileType.Image === this.fileType;
-	};
+	isImage() {
+		return FileType.Image === this.fileType;
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.isMp3 = function ()
-	{
-		return Enums.FileType.Audio === this.fileType &&
-			'mp3' === this.fileNameExt;
-	};
+	isMp3() {
+		return FileType.Audio === this.fileType && 'mp3' === this.fileNameExt;
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.isOgg = function ()
-	{
-		return Enums.FileType.Audio === this.fileType &&
-			('oga' === this.fileNameExt || 'ogg' === this.fileNameExt);
-	};
+	isOgg() {
+		return FileType.Audio === this.fileType && ('oga' === this.fileNameExt || 'ogg' === this.fileNameExt);
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.isWav = function ()
-	{
-		return Enums.FileType.Audio === this.fileType &&
-			'wav' === this.fileNameExt;
-	};
+	isWav() {
+		return FileType.Audio === this.fileType && 'wav' === this.fileNameExt;
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.hasThumbnail = function ()
-	{
+	hasThumbnail() {
 		return this.isThumbnail;
-	};
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.isText = function ()
-	{
-		return Enums.FileType.Text === this.fileType ||
-			Enums.FileType.Eml === this.fileType ||
-			Enums.FileType.Certificate === this.fileType ||
-			Enums.FileType.Html === this.fileType ||
-			Enums.FileType.Code === this.fileType
-		;
-	};
+	isText() {
+		return FileType.Text === this.fileType || FileType.Eml === this.fileType ||
+			FileType.Certificate === this.fileType || FileType.Html === this.fileType || FileType.Code === this.fileType;
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.isPdf = function ()
-	{
-		return Enums.FileType.Pdf === this.fileType;
-	};
+	isPdf() {
+		return FileType.Pdf === this.fileType;
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.isFramed = function ()
-	{
-		return this.framed && (Globals.__APP__ && Globals.__APP__.googlePreviewSupported()) &&
-			!(this.isPdf() && Globals.bAllowPdfPreview) && !this.isText() && !this.isImage();
-	};
+	isFramed() {
+		return this.framed && (GlobalsData.__APP__ && GlobalsData.__APP__.googlePreviewSupported()) &&
+			!(this.isPdf() && bAllowPdfPreview) && !this.isText() && !this.isImage();
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.hasPreview = function ()
-	{
-		return this.isImage() || (this.isPdf() && Globals.bAllowPdfPreview) ||
-			this.isText() || this.isFramed();
-	};
+	hasPreview() {
+		return this.isImage() || (this.isPdf() && bAllowPdfPreview) || this.isText() || this.isFramed();
+	}
 
 	/**
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.hasPreplay = function ()
-	{
-		return (Audio.supportedMp3 && this.isMp3()) ||
-			(Audio.supportedOgg && this.isOgg()) ||
-			(Audio.supportedWav && this.isWav())
-		;
-	};
+	hasPreplay() {
+		return (Audio.supportedMp3 && this.isMp3()) || (Audio.supportedOgg && this.isOgg()) || (Audio.supportedWav && this.isWav());
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.prototype.linkDownload = function ()
-	{
-		return Links.attachmentDownload(this.download);
-	};
+	linkDownload() {
+		return attachmentDownload(this.download);
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.prototype.linkPreview = function ()
-	{
-		return Links.attachmentPreview(this.download);
-	};
+	linkPreview() {
+		return attachmentPreview(this.download);
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.prototype.linkThumbnail = function ()
-	{
-		return this.hasThumbnail() ? Links.attachmentThumbnailPreview(this.download) : '';
-	};
+	linkThumbnail() {
+		return this.hasThumbnail() ? attachmentThumbnailPreview(this.download) : '';
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.prototype.linkThumbnailPreviewStyle = function ()
-	{
-		var sLink = this.linkThumbnail();
-		return '' === sLink ? '' : 'background:url(' + sLink + ')';
-	};
+	linkThumbnailPreviewStyle() {
+		const link = this.linkThumbnail();
+		return '' === link ? '' : 'background:url(' + link + ')';
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.prototype.linkFramed = function ()
-	{
-		return Links.attachmentFramed(this.download);
-	};
+	linkFramed() {
+		return attachmentFramed(this.download);
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.prototype.linkPreviewAsPlain = function ()
-	{
-		return Links.attachmentPreviewAsPlain(this.download);
-	};
+	linkPreviewAsPlain() {
+		return attachmentPreviewAsPlain(this.download);
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.prototype.linkPreviewMain = function ()
-	{
-		var sResult = '';
+	linkPreviewMain() {
+		let result = '';
 		switch (true)
 		{
 			case this.isImage():
-			case this.isPdf() && Globals.bAllowPdfPreview:
-				sResult = this.linkPreview();
+			case this.isPdf() && bAllowPdfPreview:
+				result = this.linkPreview();
 				break;
 			case this.isText():
-				sResult = this.linkPreviewAsPlain();
+				result = this.linkPreviewAsPlain();
 				break;
 			case this.isFramed():
-				sResult = this.linkFramed();
+				result = this.linkFramed();
 				break;
+			// no default
 		}
 
-		return sResult;
-	};
+		return result;
+	}
 
 	/**
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.prototype.generateTransferDownloadUrl = function ()
-	{
-		var	sLink = this.linkDownload();
-		if ('http' !== sLink.substr(0, 4))
+	generateTransferDownloadUrl() {
+		let link = this.linkDownload();
+		if ('http' !== link.substr(0, 4))
 		{
-			sLink = window.location.protocol + '//' + window.location.host + window.location.pathname + sLink;
+			link = window.location.protocol + '//' + window.location.host + window.location.pathname + link;
 		}
 
-		return this.mimeType + ':' + this.fileName + ':' + sLink;
-	};
+		return this.mimeType + ':' + this.fileName + ':' + link;
+	}
 
 	/**
-	 * @param {AttachmentModel} oAttachment
-	 * @param {*} oEvent
-	 * @return {boolean}
+	 * @param {AttachmentModel} attachment
+	 * @param {*} event
+	 * @returns {boolean}
 	 */
-	AttachmentModel.prototype.eventDragStart = function (oAttachment, oEvent)
-	{
-		var	oLocalEvent = oEvent.originalEvent || oEvent;
-		if (oAttachment && oLocalEvent && oLocalEvent.dataTransfer && oLocalEvent.dataTransfer.setData)
+	eventDragStart(attachment, event) {
+		const localEvent = event.originalEvent || event;
+		if (attachment && localEvent && localEvent.dataTransfer && localEvent.dataTransfer.setData)
 		{
-			oLocalEvent.dataTransfer.setData('DownloadURL', this.generateTransferDownloadUrl());
+			localEvent.dataTransfer.setData('DownloadURL', this.generateTransferDownloadUrl());
 		}
 
 		return true;
-	};
+	}
 
 	/**
-	 * @param {string} sExt
-	 * @param {string} sMimeType
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.staticFileType = _.memoize(function (sExt, sMimeType)
-	{
-		sExt = Utils.trim(sExt).toLowerCase();
-		sMimeType = Utils.trim(sMimeType).toLowerCase();
-
-		var
-			sResult = Enums.FileType.Unknown,
-			aMimeTypeParts = sMimeType.split('/')
-		;
-
-		switch (true)
-		{
-			case 'image' === aMimeTypeParts[0] || -1 < Utils.inArray(sExt, [
-				'png', 'jpg', 'jpeg', 'gif', 'bmp'
-			]):
-				sResult = Enums.FileType.Image;
-				break;
-			case 'audio' === aMimeTypeParts[0] || -1 < Utils.inArray(sExt, [
-				'mp3', 'ogg', 'oga', 'wav'
-			]):
-				sResult = Enums.FileType.Audio;
-				break;
-			case 'video' === aMimeTypeParts[0] || -1 < Utils.inArray(sExt, [
-				'mkv', 'avi'
-			]):
-				sResult = Enums.FileType.Video;
-				break;
-			case -1 < Utils.inArray(sExt, [
-				'php', 'js', 'css'
-			]):
-				sResult = Enums.FileType.Code;
-				break;
-			case 'eml' === sExt || -1 < Utils.inArray(sMimeType, [
-				'message/delivery-status', 'message/rfc822'
-			]):
-				sResult = Enums.FileType.Eml;
-				break;
-			case ('text' === aMimeTypeParts[0] && 'html' !== aMimeTypeParts[1]) || -1 < Utils.inArray(sExt, [
-				'txt', 'log'
-			]):
-				sResult = Enums.FileType.Text;
-				break;
-			case ('text/html' === sMimeType) || -1 < Utils.inArray(sExt, [
-				'html'
-			]):
-				sResult = Enums.FileType.Html;
-				break;
-			case -1 < Utils.inArray(aMimeTypeParts[1], [
-				'zip', '7z', 'tar', 'rar', 'gzip', 'bzip', 'bzip2', 'x-zip', 'x-7z', 'x-rar', 'x-tar', 'x-gzip', 'x-bzip', 'x-bzip2', 'x-zip-compressed', 'x-7z-compressed', 'x-rar-compressed'
-			]) || -1 < Utils.inArray(sExt, [
-				'zip', '7z', 'tar', 'rar', 'gzip', 'bzip', 'bzip2'
-			]):
-				sResult = Enums.FileType.Archive;
-				break;
-			case -1 < Utils.inArray(aMimeTypeParts[1], ['pdf', 'x-pdf']) || -1 < Utils.inArray(sExt, [
-				'pdf'
-			]):
-				sResult = Enums.FileType.Pdf;
-				break;
-			case -1 < Utils.inArray(sMimeType, [
-				'application/pgp-signature', 'application/pgp-keys'
-			]) || -1 < Utils.inArray(sExt, [
-				'asc', 'pem', 'ppk'
-			]):
-				sResult = Enums.FileType.Certificate;
-				break;
-			case -1 < Utils.inArray(sMimeType, ['application/pkcs7-signature']) ||
-				-1 < Utils.inArray(sExt, ['p7s']):
-
-				sResult = Enums.FileType.CertificateBin;
-				break;
-			case -1 < Utils.inArray(aMimeTypeParts[1], [
-				'rtf', 'msword', 'vnd.msword', 'vnd.openxmlformats-officedocument.wordprocessingml.document',
-				'vnd.openxmlformats-officedocument.wordprocessingml.template',
-				'vnd.ms-word.document.macroEnabled.12',
-				'vnd.ms-word.template.macroEnabled.12'
-			]):
-				sResult = Enums.FileType.WordText;
-				break;
-			case -1 < Utils.inArray(aMimeTypeParts[1], [
-				'excel', 'ms-excel', 'vnd.ms-excel',
-				'vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-				'vnd.openxmlformats-officedocument.spreadsheetml.template',
-				'vnd.ms-excel.sheet.macroEnabled.12',
-				'vnd.ms-excel.template.macroEnabled.12',
-				'vnd.ms-excel.addin.macroEnabled.12',
-				'vnd.ms-excel.sheet.binary.macroEnabled.12'
-			]):
-				sResult = Enums.FileType.Sheet;
-				break;
-			case -1 < Utils.inArray(aMimeTypeParts[1], [
-				'powerpoint', 'ms-powerpoint', 'vnd.ms-powerpoint',
-				'vnd.openxmlformats-officedocument.presentationml.presentation',
-				'vnd.openxmlformats-officedocument.presentationml.template',
-				'vnd.openxmlformats-officedocument.presentationml.slideshow',
-				'vnd.ms-powerpoint.addin.macroEnabled.12',
-				'vnd.ms-powerpoint.presentation.macroEnabled.12',
-				'vnd.ms-powerpoint.template.macroEnabled.12',
-				'vnd.ms-powerpoint.slideshow.macroEnabled.12'
-			]):
-				sResult = Enums.FileType.Presentation;
-				break;
-		}
-
-		return sResult;
-	});
+	iconClass() {
+		return staticIconClass(this.fileType)[0];
+	}
 
 	/**
-	 * @param {string} sFileType
-	 * @return {string}
+	 * @returns {string}
 	 */
-	AttachmentModel.staticIconClass = _.memoize(function (sFileType)
-	{
-		var
-			sText = '',
-			sClass = 'icon-file'
-		;
+	iconText() {
+		return staticIconClass(this.fileType)[1];
+	}
+}
 
-		switch (sFileType)
-		{
-			case Enums.FileType.Text:
-			case Enums.FileType.Eml:
-			case Enums.FileType.WordText:
-				sClass = 'icon-file-text';
-				break;
-			case Enums.FileType.Html:
-			case Enums.FileType.Code:
-				sClass = 'icon-file-code';
-				break;
-			case Enums.FileType.Image:
-				sClass = 'icon-file-image';
-				break;
-			case Enums.FileType.Audio:
-				sClass = 'icon-file-music';
-				break;
-			case Enums.FileType.Video:
-				sClass = 'icon-file-movie';
-				break;
-			case Enums.FileType.Archive:
-				sClass = 'icon-file-zip';
-				break;
-			case Enums.FileType.Certificate:
-			case Enums.FileType.CertificateBin:
-				sClass = 'icon-file-certificate';
-				break;
-			case Enums.FileType.Sheet:
-				sClass = 'icon-file-excel';
-				break;
-			case Enums.FileType.Presentation:
-				sClass = 'icon-file-chart-graph';
-				break;
-			case Enums.FileType.Pdf:
-				sText = 'pdf';
-				sClass = 'icon-none';
-				break;
-		}
-
-		return [sClass, sText];
-	});
-
-	/**
-	 * @param {string} sFileType
-	 * @return {string}
-	 */
-	AttachmentModel.staticCombinedIconClass = function (aData)
-	{
-		var
-			sClass = '',
-			aTypes = []
-		;
-
-		if (Utils.isNonEmptyArray(aData))
-		{
-			sClass = 'icon-attachment';
-
-			aTypes = _.uniq(_.compact(_.map(aData, function (aItem) {
-				return aItem ? AttachmentModel.staticFileType(
-					Utils.getFileExtension(aItem[0]), aItem[1]) : '';
-			})));
-
-			if (aTypes && 1 === aTypes.length && aTypes[0])
-			{
-				switch (aTypes[0])
-				{
-					case Enums.FileType.Text:
-					case Enums.FileType.WordText:
-						sClass = 'icon-file-text';
-						break;
-					case Enums.FileType.Html:
-					case Enums.FileType.Code:
-						sClass = 'icon-file-code';
-						break;
-					case Enums.FileType.Image:
-						sClass = 'icon-file-image';
-						break;
-					case Enums.FileType.Audio:
-						sClass = 'icon-file-music';
-						break;
-					case Enums.FileType.Video:
-						sClass = 'icon-file-movie';
-						break;
-					case Enums.FileType.Archive:
-						sClass = 'icon-file-zip';
-						break;
-					case Enums.FileType.Certificate:
-					case Enums.FileType.CertificateBin:
-						sClass = 'icon-file-certificate';
-						break;
-					case Enums.FileType.Sheet:
-						sClass = 'icon-file-excel';
-						break;
-					case Enums.FileType.Presentation:
-						sClass = 'icon-file-chart-graph';
-						break;
-				}
-			}
-		}
-
-		return sClass;
-	};
-
-	/**
-	 * @return {string}
-	 */
-	AttachmentModel.prototype.iconClass = function ()
-	{
-		return AttachmentModel.staticIconClass(this.fileType)[0];
-	};
-
-	/**
-	 * @return {string}
-	 */
-	AttachmentModel.prototype.iconText = function ()
-	{
-		return AttachmentModel.staticIconClass(this.fileType)[1];
-	};
-
-	module.exports = AttachmentModel;
-
-}());
+export {AttachmentModel, AttachmentModel as default};

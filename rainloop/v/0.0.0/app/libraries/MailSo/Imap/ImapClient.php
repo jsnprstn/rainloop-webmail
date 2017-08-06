@@ -172,11 +172,22 @@ class ImapClient extends \MailSo\Net\NetClient
 		return $this;
 	}
 
+	protected function _xor($string, $string2)
+    {
+        $result = '';
+        $size   = strlen($string);
+        for ($i=0; $i<$size; $i++) {
+            $result .= chr(ord($string[$i]) ^ ord($string2[$i]));
+        }
+        return $result;
+    }
+
 	/**
 	 * @param string $sLogin
 	 * @param string $sPassword
 	 * @param string $sProxyAuthUser = ''
-	 * @param bool $bUseAuthPlainIfSupported = false
+	 * @param bool $bUseAuthPlainIfSupported = true
+	 * @param bool $bUseAuthCramMd5IfSupported = true
 	 *
 	 * @return \MailSo\Imap\ImapClient
 	 *
@@ -184,7 +195,8 @@ class ImapClient extends \MailSo\Net\NetClient
 	 * @throws \MailSo\Net\Exceptions\Exception
 	 * @throws \MailSo\Imap\Exceptions\Exception
 	 */
-	public function Login($sLogin, $sPassword, $sProxyAuthUser = '', $bUseAuthPlainIfSupported = false)
+	public function Login($sLogin, $sPassword, $sProxyAuthUser = '',
+		$bUseAuthPlainIfSupported = true, $bUseAuthCramMd5IfSupported = true)
 	{
 		if (!\MailSo\Base\Validator::NotEmptyString($sLogin, true) ||
 			!\MailSo\Base\Validator::NotEmptyString($sPassword, true))
@@ -202,8 +214,7 @@ class ImapClient extends \MailSo\Net\NetClient
 
 		try
 		{
-			// TODO
-			if (false && $this->IsSupported('AUTH=CRAM-MD5'))
+			if ($bUseAuthCramMd5IfSupported && $this->IsSupported('AUTH=CRAM-MD5'))
 			{
 				$this->SendRequest('AUTHENTICATE', array('CRAM-MD5'));
 
@@ -220,23 +231,33 @@ class ImapClient extends \MailSo\Net\NetClient
 						}
 					}
 
-					if ($oContinuationResponse)
+					if ($oContinuationResponse && !empty($oContinuationResponse->ResponseList[1]))
 					{
-						$sToken = \base64_encode("\0".$sLogin."\0".$sPassword);
+						$sTicket = @\base64_decode($oContinuationResponse->ResponseList[1]);
+						$this->oLogger->Write('ticket: '.$sTicket);
+
+						$sToken = \base64_encode($sLogin.' '.\MailSo\Base\Utils::Hmac($sTicket, $sPassword));
+
 						if ($this->oLogger)
 						{
 							$this->oLogger->AddSecret($sToken);
 						}
-
-						$this->Logger()->WriteDump($aResponse);
 
 						$this->sendRaw($sToken, true, '*******');
 						$this->parseResponseWithValidation();
 					}
 					else
 					{
-						// TODO
+						$this->writeLogException(
+							new \MailSo\Imap\Exceptions\LoginException(),
+							\MailSo\Log\Enumerations\Type::NOTICE, true);
 					}
+				}
+				else
+				{
+					$this->writeLogException(
+						new \MailSo\Imap\Exceptions\LoginException(),
+						\MailSo\Log\Enumerations\Type::NOTICE, true);
 				}
 			}
 			else if ($bUseAuthPlainIfSupported && $this->IsSupported('AUTH=PLAIN'))
@@ -964,6 +985,23 @@ class ImapClient extends \MailSo\Net\NetClient
 	public function FolderExamine($sFolderName, $bReSelectSameFolders = false)
 	{
 		return $this->selectOrExamineFolder($sFolderName, $this->__FORCE_SELECT_ON_EXAMINE__, $bReSelectSameFolders);
+	}
+
+	/**
+	 * @return \MailSo\Imap\ImapClient
+	 *
+	 * @throws \MailSo\Net\Exceptions\Exception
+	 * @throws \MailSo\Imap\Exceptions\Exception
+	 */
+	public function FolderUnSelect()
+	{
+		if ($this->IsSelected() && $this->IsSupported('UNSELECT'))
+		{
+			$this->SendRequestWithCheck('UNSELECT');
+			$this->bIsSelected = false;
+		}
+
+		return $this;
 	}
 
 	/**

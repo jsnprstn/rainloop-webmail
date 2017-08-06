@@ -1,94 +1,103 @@
 
-(function () {
+/* global RL_COMMUNITY */
 
-	'use strict';
+import {addSettingsViewModel} from 'Knoin/Knoin';
+import {runSettingsViewModelHooks} from 'Common/Plugins';
 
-	var
-		_ = require('_'),
+import {AbstractSettingsScreen} from 'Screen/AbstractSettings';
 
-		kn = require('Knoin/Knoin'),
+import {GeneralAdminSettings} from 'Settings/Admin/General';
+import {DomainsAdminSettings} from 'Settings/Admin/Domains';
+import {LoginAdminSettings} from 'Settings/Admin/Login';
+import {ContactsAdminSettings} from 'Settings/Admin/Contacts';
+import {SecurityAdminSettings} from 'Settings/Admin/Security';
+import {SocialAdminSettings} from 'Settings/Admin/Social';
+import {PluginsAdminSettings} from 'Settings/Admin/Plugins';
+import {PackagesAdminSettings} from 'Settings/Admin/Packages';
+import {AboutAdminSettings} from 'Settings/Admin/About';
 
-		Plugins = require('Common/Plugins'),
+import {getApp} from 'Helper/Apps/Admin';
 
-		AbstractSettings = require('Screen/AbstractSettings')
-	;
+import {MenuSettingsAdminView} from 'View/Admin/Settings/Menu';
+import {PaneSettingsAdminView} from 'View/Admin/Settings/Pane';
 
-	/**
-	 * @constructor
-	 * @extends AbstractSettings
-	 */
-	function SettingsAdminScreen()
-	{
-		AbstractSettings.call(this, [
-			require('View/Admin/Settings/Menu'),
-			require('View/Admin/Settings/Pane')
+class SettingsAdminScreen extends AbstractSettingsScreen
+{
+	constructor() {
+		super([
+			MenuSettingsAdminView,
+			PaneSettingsAdminView
 		]);
 	}
 
-	_.extend(SettingsAdminScreen.prototype, AbstractSettings.prototype);
-
 	/**
-	 * @param {Function=} fCallback
+	 * @param {Function=} fCallback = null
 	 */
-	SettingsAdminScreen.prototype.setupSettings = function (fCallback)
-	{
-		kn.addSettingsViewModel(require('Settings/Admin/General'),
-			'AdminSettingsGeneral', 'TABS_LABELS/LABEL_GENERAL_NAME', 'general', true);
+	setupSettings(fCallback = null) {
 
-		kn.addSettingsViewModel(require('Settings/Admin/Login'),
-			'AdminSettingsLogin', 'TABS_LABELS/LABEL_LOGIN_NAME', 'login');
+		let branding = null,
+			licensing = null;
 
 		if (RL_COMMUNITY)
 		{
-			kn.addSettingsViewModel(require('Settings/Admin/Branding'),
-				'AdminSettingsBranding', 'TABS_LABELS/LABEL_BRANDING_NAME', 'branding');
+			branding = require('Settings/Admin/Branding').default;
 		}
 		else
 		{
-			kn.addSettingsViewModel(require('Settings/Admin/Prem/Branding'),
+			branding = require('Settings/Admin/Prem/Branding').default;
+			licensing = require('Settings/Admin/Prem/Licensing').default;
+		}
+
+		addSettingsViewModel(GeneralAdminSettings,
+			'AdminSettingsGeneral', 'TABS_LABELS/LABEL_GENERAL_NAME', 'general', true);
+
+		addSettingsViewModel(DomainsAdminSettings,
+			'AdminSettingsDomains', 'TABS_LABELS/LABEL_DOMAINS_NAME', 'domains');
+
+		addSettingsViewModel(LoginAdminSettings,
+			'AdminSettingsLogin', 'TABS_LABELS/LABEL_LOGIN_NAME', 'login');
+
+		if (branding)
+		{
+			addSettingsViewModel(branding,
 				'AdminSettingsBranding', 'TABS_LABELS/LABEL_BRANDING_NAME', 'branding');
 		}
 
-		kn.addSettingsViewModel(require('Settings/Admin/Contacts'),
+		addSettingsViewModel(ContactsAdminSettings,
 			'AdminSettingsContacts', 'TABS_LABELS/LABEL_CONTACTS_NAME', 'contacts');
 
-		kn.addSettingsViewModel(require('Settings/Admin/Domains'),
-			'AdminSettingsDomains', 'TABS_LABELS/LABEL_DOMAINS_NAME', 'domains');
-
-		kn.addSettingsViewModel(require('Settings/Admin/Security'),
+		addSettingsViewModel(SecurityAdminSettings,
 			'AdminSettingsSecurity', 'TABS_LABELS/LABEL_SECURITY_NAME', 'security');
 
-		kn.addSettingsViewModel(require('Settings/Admin/Social'),
+		addSettingsViewModel(SocialAdminSettings,
 			'AdminSettingsSocial', 'TABS_LABELS/LABEL_INTEGRATION_NAME', 'integrations');
 
-		kn.addSettingsViewModel(require('Settings/Admin/Plugins'),
+		addSettingsViewModel(PluginsAdminSettings,
 			'AdminSettingsPlugins', 'TABS_LABELS/LABEL_PLUGINS_NAME', 'plugins');
 
-		kn.addSettingsViewModel(require('Settings/Admin/Packages'),
+		addSettingsViewModel(PackagesAdminSettings,
 			'AdminSettingsPackages', 'TABS_LABELS/LABEL_PACKAGES_NAME', 'packages');
 
-		if (!RL_COMMUNITY)
+		if (licensing)
 		{
-			kn.addSettingsViewModel(require('Settings/Admin/Prem/Licensing'),
+			addSettingsViewModel(licensing,
 				'AdminSettingsLicensing', 'TABS_LABELS/LABEL_LICENSING_NAME', 'licensing');
 		}
 
-		kn.addSettingsViewModel(require('Settings/Admin/About'),
+		addSettingsViewModel(AboutAdminSettings,
 			'AdminSettingsAbout', 'TABS_LABELS/LABEL_ABOUT_NAME', 'about');
 
-		Plugins.runSettingsViewModelHooks(true);
+		runSettingsViewModelHooks(true);
 
 		if (fCallback)
 		{
 			fCallback();
 		}
-	};
+	}
 
-	SettingsAdminScreen.prototype.onShow = function ()
-	{
-		require('App/Admin').setWindowTitle('');
-	};
+	onShow() {
+		getApp().setWindowTitle('');
+	}
+}
 
-	module.exports = SettingsAdminScreen;
-
-}());
+export {SettingsAdminScreen, SettingsAdminScreen as default};

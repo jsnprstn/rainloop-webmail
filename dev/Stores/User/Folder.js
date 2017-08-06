@@ -1,24 +1,17 @@
 
-(function () {
+import ko from 'ko';
+import _ from '_';
 
-	'use strict';
+import {FolderType} from 'Common/Enums';
+import {UNUSED_OPTION_VALUE} from 'Common/Consts';
+import {isArray, folderListOptionsBuilder} from 'Common/Utils';
+import {getFolderInboxName, getFolderFromCacheList} from 'Common/Cache';
 
-	var
-		_ = require('_'),
-		ko = require('ko'),
+import {momentNowUnix} from 'Common/Momentor';
 
-		Enums = require('Common/Enums'),
-		Consts = require('Common/Consts'),
-		Utils = require('Common/Utils'),
-
-		Cache = require('Common/Cache')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function FolderUserStore()
-	{
+class FolderUserStore
+{
+	constructor() {
 		this.displaySpecSetting = ko.observable(true);
 
 		this.sentFolder = ko.observable('');
@@ -40,134 +33,111 @@
 
 		this.foldersInboxUnreadCount = ko.observable(0);
 
-		this.currentFolder = ko.observable(null).extend({'toggleSubscribe': [null,
-			function (oPrev) { if (oPrev) { oPrev.selected(false); }},
-			function (oNext) { if (oNext) { oNext.selected(true); }}
-		]});
+		this.currentFolder = ko.observable(null).extend({toggleSubscribeProperty: [this, 'selected']});
 
 		this.computers();
 		this.subscribers();
 	}
 
-	FolderUserStore.prototype.computers = function ()
-	{
-		this.draftFolderNotEnabled = ko.computed(function () {
-			return '' === this.draftFolder() || Consts.Values.UnuseOptionValue === this.draftFolder();
-		}, this);
+	computers() {
 
-		this.foldersListWithSingleInboxRootFolder = ko.computed(function () {
-			return !_.find(this.folderList(), function (oFolder) {
-				return oFolder && !oFolder.isSystemFolder() && oFolder.visible();
-			});
-		}, this);
+		this.draftFolderNotEnabled = ko.computed(
+			() => ('' === this.draftFolder() || UNUSED_OPTION_VALUE === this.draftFolder())
+		);
 
-		this.currentFolderFullNameRaw = ko.computed(function () {
-			return this.currentFolder() ? this.currentFolder().fullNameRaw : '';
-		}, this);
+		this.foldersListWithSingleInboxRootFolder = ko.computed(
+			() => !_.find(this.folderList(), (folder) => (folder && !folder.isSystemFolder() && folder.visible()))
+		);
 
-		this.currentFolderFullName = ko.computed(function () {
-			return this.currentFolder() ? this.currentFolder().fullName : '';
-		}, this);
+		this.currentFolderFullNameRaw = ko.computed(
+			() => (this.currentFolder() ? this.currentFolder().fullNameRaw : '')
+		);
 
-		this.currentFolderFullNameHash = ko.computed(function () {
-			return this.currentFolder() ? this.currentFolder().fullNameHash : '';
-		}, this);
+		this.currentFolderFullName = ko.computed(() => (this.currentFolder() ? this.currentFolder().fullName : ''));
+		this.currentFolderFullNameHash = ko.computed(() => (this.currentFolder() ? this.currentFolder().fullNameHash : ''));
 
-		this.foldersChanging = ko.computed(function () {
-			var
-				bLoading = this.foldersLoading(),
-				bCreating = this.foldersCreating(),
-				bDeleting = this.foldersDeleting(),
-				bRenaming = this.foldersRenaming()
-			;
-			return bLoading || bCreating || bDeleting || bRenaming;
-		}, this);
+		this.foldersChanging = ko.computed(() => {
+			const
+				loading = this.foldersLoading(),
+				creating = this.foldersCreating(),
+				deleting = this.foldersDeleting(),
+				renaming = this.foldersRenaming();
 
-		this.folderListSystemNames = ko.computed(function () {
+			return loading || creating || deleting || renaming;
+		});
 
-			var
-				aList = [Cache.getFolderInboxName()],
-				aFolders = this.folderList(),
-				sSentFolder = this.sentFolder(),
-				sDraftFolder = this.draftFolder(),
-				sSpamFolder = this.spamFolder(),
-				sTrashFolder = this.trashFolder(),
-				sArchiveFolder = this.archiveFolder()
-			;
+		this.folderListSystemNames = ko.computed(() => {
 
-			if (Utils.isArray(aFolders) && 0 < aFolders.length)
+			const
+				list = [getFolderInboxName()],
+				folders = this.folderList(),
+				sentFolder = this.sentFolder(),
+				draftFolder = this.draftFolder(),
+				spamFolder = this.spamFolder(),
+				trashFolder = this.trashFolder(),
+				archiveFolder = this.archiveFolder();
+
+			if (isArray(folders) && 0 < folders.length)
 			{
-				if ('' !== sSentFolder && Consts.Values.UnuseOptionValue !== sSentFolder)
+				if ('' !== sentFolder && UNUSED_OPTION_VALUE !== sentFolder)
 				{
-					aList.push(sSentFolder);
+					list.push(sentFolder);
 				}
-				if ('' !== sDraftFolder && Consts.Values.UnuseOptionValue !== sDraftFolder)
+				if ('' !== draftFolder && UNUSED_OPTION_VALUE !== draftFolder)
 				{
-					aList.push(sDraftFolder);
+					list.push(draftFolder);
 				}
-				if ('' !== sSpamFolder && Consts.Values.UnuseOptionValue !== sSpamFolder)
+				if ('' !== spamFolder && UNUSED_OPTION_VALUE !== spamFolder)
 				{
-					aList.push(sSpamFolder);
+					list.push(spamFolder);
 				}
-				if ('' !== sTrashFolder && Consts.Values.UnuseOptionValue !== sTrashFolder)
+				if ('' !== trashFolder && UNUSED_OPTION_VALUE !== trashFolder)
 				{
-					aList.push(sTrashFolder);
+					list.push(trashFolder);
 				}
-				if ('' !== sArchiveFolder && Consts.Values.UnuseOptionValue !== sArchiveFolder)
+				if ('' !== archiveFolder && UNUSED_OPTION_VALUE !== archiveFolder)
 				{
-					aList.push(sArchiveFolder);
+					list.push(archiveFolder);
 				}
 			}
 
-			return aList;
+			return list;
+		});
 
-		}, this);
+		this.folderListSystem = ko.computed(
+			() => _.compact(_.map(this.folderListSystemNames(), (name) => getFolderFromCacheList(name)))
+		);
 
-		this.folderListSystem = ko.computed(function () {
-			return _.compact(_.map(this.folderListSystemNames(), function (sName) {
-				return Cache.getFolderFromCacheList(sName);
-			}));
-		}, this);
+		this.folderMenuForMove = ko.computed(
+			() => folderListOptionsBuilder(
+				this.folderListSystem(), this.folderList(),
+				[this.currentFolderFullNameRaw()], null, null, null, null, (item) => (item ? item.localName() : ''))
+		);
 
-		this.folderMenuForMove = ko.computed(function () {
-			return Utils.folderListOptionsBuilder(this.folderListSystem(), this.folderList(), [
-				this.currentFolderFullNameRaw()
-			], null, null, null, null, function (oItem) {
-				return oItem ? oItem.localName() : '';
-			});
-		}, this);
+		this.folderMenuForFilters = ko.computed(
+			() => folderListOptionsBuilder(
+				this.folderListSystem(), this.folderList(),
+				['INBOX'], [['', '']], null, null, null, (item) => (item ? item.localName() : ''))
+		);
+	}
 
-		this.folderMenuForFilters = ko.computed(function () {
-			return Utils.folderListOptionsBuilder(this.folderListSystem(), this.folderList(),
-				['INBOX'], [['', '']], null, null, null, function (oItem) {
-					return oItem ? oItem.localName() : '';
+	subscribers() {
+		const
+			fRemoveSystemFolderType = (observable) => () => {
+				const folder = getFolderFromCacheList(observable());
+				if (folder)
+				{
+					folder.type(FolderType.User);
 				}
-			);
-		}, this);
-	};
-
-	FolderUserStore.prototype.subscribers = function ()
-	{
-		var
-			fRemoveSystemFolderType = function (observable) {
-				return function () {
-					var oFolder = Cache.getFolderFromCacheList(observable());
-					if (oFolder)
-					{
-						oFolder.type(Enums.FolderType.User);
-					}
-				};
-			},
-			fSetSystemFolderType = function (iType) {
-				return function (sValue) {
-					var oFolder = Cache.getFolderFromCacheList(sValue);
-					if (oFolder)
-					{
-						oFolder.type(iType);
-					}
-				};
-			}
-		;
+			};
+		const
+			fSetSystemFolderType = (type) => (value) => {
+				const folder = getFolderFromCacheList(value);
+				if (folder)
+				{
+					folder.type(type);
+				}
+			};
 
 		this.sentFolder.subscribe(fRemoveSystemFolderType(this.sentFolder), this, 'beforeChange');
 		this.draftFolder.subscribe(fRemoveSystemFolderType(this.draftFolder), this, 'beforeChange');
@@ -175,72 +145,70 @@
 		this.trashFolder.subscribe(fRemoveSystemFolderType(this.trashFolder), this, 'beforeChange');
 		this.archiveFolder.subscribe(fRemoveSystemFolderType(this.archiveFolder), this, 'beforeChange');
 
-		this.sentFolder.subscribe(fSetSystemFolderType(Enums.FolderType.SentItems), this);
-		this.draftFolder.subscribe(fSetSystemFolderType(Enums.FolderType.Draft), this);
-		this.spamFolder.subscribe(fSetSystemFolderType(Enums.FolderType.Spam), this);
-		this.trashFolder.subscribe(fSetSystemFolderType(Enums.FolderType.Trash), this);
-		this.archiveFolder.subscribe(fSetSystemFolderType(Enums.FolderType.Archive), this);
-	};
+		this.sentFolder.subscribe(fSetSystemFolderType(FolderType.SentItems), this);
+		this.draftFolder.subscribe(fSetSystemFolderType(FolderType.Draft), this);
+		this.spamFolder.subscribe(fSetSystemFolderType(FolderType.Spam), this);
+		this.trashFolder.subscribe(fSetSystemFolderType(FolderType.Trash), this);
+		this.archiveFolder.subscribe(fSetSystemFolderType(FolderType.Archive), this);
+	}
 
 	/**
-	 * @return {Array}
+	 * @returns {Array}
 	 */
-	FolderUserStore.prototype.getNextFolderNames = function ()
-	{
-		var
-			aResult = [],
-			iLimit = 5,
-			iUtc = require('Common/Momentor').momentNowUnix(),
-			iTimeout = iUtc - 60 * 5,
-			aTimeouts = [],
-			sInboxFolderName = Cache.getFolderInboxName(),
-			fSearchFunction = function (aList) {
-				_.each(aList, function (oFolder) {
-					if (oFolder && sInboxFolderName !== oFolder.fullNameRaw &&
-						oFolder.selectable && oFolder.existen &&
-						iTimeout > oFolder.interval &&
-						(oFolder.isSystemFolder() || (oFolder.subScribed() && oFolder.checkable()))
+	getNextFolderNames() {
+
+		const
+			result = [],
+			limit = 5,
+			utc = momentNowUnix(),
+			timeout = utc - 60 * 5,
+			timeouts = [],
+			inboxFolderName = getFolderInboxName(),
+			fSearchFunction = (list) => {
+				_.each(list, (folder) => {
+					if (folder && inboxFolderName !== folder.fullNameRaw &&
+						folder.selectable && folder.existen && timeout > folder.interval &&
+						(folder.isSystemFolder() || (folder.subScribed() && folder.checkable()))
 					)
 					{
-						aTimeouts.push([oFolder.interval, oFolder.fullNameRaw]);
+						timeouts.push([folder.interval, folder.fullNameRaw]);
 					}
 
-					if (oFolder && 0 < oFolder.subFolders().length)
+					if (folder && 0 < folder.subFolders().length)
 					{
-						fSearchFunction(oFolder.subFolders());
+						fSearchFunction(folder.subFolders());
 					}
 				});
-			}
-		;
+			};
 
 		fSearchFunction(this.folderList());
 
-		aTimeouts.sort(function(a, b) {
-			if (a[0] < b[0]) {
+		timeouts.sort((a, b) => {
+			if (a[0] < b[0])
+			{
 				return -1;
-			} else if (a[0] > b[0]) {
+			}
+			else if (a[0] > b[0])
+			{
 				return 1;
 			}
 
 			return 0;
 		});
 
-		_.find(aTimeouts, function (aItem) {
-			var oFolder = Cache.getFolderFromCacheList(aItem[1]);
-			if (oFolder)
+		_.find(timeouts, (aItem) => {
+			const folder = getFolderFromCacheList(aItem[1]);
+			if (folder)
 			{
-				oFolder.interval = iUtc;
-				aResult.push(aItem[1]);
+				folder.interval = utc;
+				result.push(aItem[1]);
 			}
 
-			return iLimit <= aResult.length;
+			return limit <= result.length;
 		});
 
-		aResult = _.uniq(aResult);
+		return _.uniq(result);
+	}
+}
 
-		return aResult;
-	};
-
-	module.exports = new FolderUserStore();
-
-}());
+export default new FolderUserStore();

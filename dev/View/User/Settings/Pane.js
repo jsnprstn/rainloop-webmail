@@ -1,40 +1,60 @@
 
-(function () {
+import {inbox} from 'Common/Links';
+import {getFolderInboxName} from 'Common/Cache';
+import {leftPanelDisabled} from 'Common/Globals';
 
-	'use strict';
+import * as Settings from 'Storage/Settings';
 
-	var
-		_ = require('_'),
+import MessageStore from 'Stores/User/Message';
 
-		kn = require('Knoin/Knoin'),
-		AbstractView = require('Knoin/AbstractView')
-	;
+import {view, ViewType, setHash} from 'Knoin/Knoin';
+import {AbstractViewNext} from 'Knoin/AbstractViewNext';
 
-	/**
-	 * @constructor
-	 * @extends AbstractView
-	 */
-	function PaneSettingsUserView()
-	{
-		AbstractView.call(this, 'Right', 'SettingsPane');
+@view({
+	name: 'View/User/Settings/Pane',
+	type: ViewType.Right,
+	templateID: 'SettingsPane'
+})
+class PaneSettingsUserView extends AbstractViewNext
+{
+	constructor() {
+		super();
 
-		kn.constructorEnd(this);
+		this.mobile = Settings.appSettingsGet('mobile');
+
+		this.leftPanelDisabled = leftPanelDisabled;
 	}
 
-	kn.extendAsViewModel(['View/User/Settings/Pane', 'View/App/Settings/Pane', 'SettingsPaneViewModel'], PaneSettingsUserView);
-	_.extend(PaneSettingsUserView.prototype, AbstractView.prototype);
+	onShow() {
+		MessageStore.message(null);
+	}
 
-	PaneSettingsUserView.prototype.onShow = function ()
-	{
-		require('Stores/User/Message').message(null);
-	};
+	hideLeft(item, event) {
+		event.preventDefault();
+		event.stopPropagation();
 
-	PaneSettingsUserView.prototype.backToMailBoxClick = function ()
-	{
-		kn.setHash(require('Common/Links').inbox(
-			require('Common/Cache').getFolderInboxName()));
-	};
+		leftPanelDisabled(true);
+	}
 
-	module.exports = PaneSettingsUserView;
+	showLeft(item, event) {
+		event.preventDefault();
+		event.stopPropagation();
 
-}());
+		leftPanelDisabled(false);
+	}
+
+	onBuild(dom) {
+		if (this.mobile)
+		{
+			dom.on('click', () => {
+				leftPanelDisabled(true);
+			});
+		}
+	}
+
+	backToMailBoxClick() {
+		setHash(inbox(getFolderInboxName()));
+	}
+}
+
+export {PaneSettingsUserView, PaneSettingsUserView as default};

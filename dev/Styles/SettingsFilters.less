@@ -1,6 +1,10 @@
 
 .b-settings-filters {
 
+	html.rl-mobile &{
+		margin-right: 15px;
+	}
+
 	.process-place {
 		text-align: center;
 		width: 600px;
@@ -54,12 +58,15 @@
 
 	.filter-item {
 
+		white-space: nowrap;
+
 		.e-action {
 			cursor: pointer;
 		}
 
 		.drag-handle {
 			cursor: pointer;
+			cursor: all-scroll;
 		}
 
 		.button-delete {

@@ -1,44 +1,46 @@
 
-(function () {
+import _ from '_';
 
-	'use strict';
+import {pString, pInt, isArray, trim, boolToAjax} from 'Common/Utils';
 
-	var
-		_ = require('_'),
+import {
+	CONTACTS_SYNC_AJAX_TIMEOUT,
+	DEFAULT_AJAX_TIMEOUT,
+	SEARCH_AJAX_TIMEOUT,
+	SAVE_MESSAGE_AJAX_TIMEOUT,
+	SEND_MESSAGE_AJAX_TIMEOUT
+} from 'Common/Consts';
 
-		Utils = require('Common/Utils'),
-		Consts = require('Common/Consts'),
-		Base64 = require('Common/Base64'),
+import {
+	getFolderHash,
+	getFolderInboxName,
+	getFolderUidNext,
+	getFolderFromCacheList,
+	getMessageFlagsFromCache
+} from 'Common/Cache';
 
-		Cache = require('Common/Cache'),
-		Links = require('Common/Links'),
+import {subQueryPrefix} from 'Common/Links';
+import * as Base64 from 'Common/Base64';
+import * as Settings from 'Storage/Settings';
 
-		Settings = require('Storage/Settings'),
+import AppStore from 'Stores/User/App';
+import SettingsStore from 'Stores/User/Settings';
 
-		AppStore = require('Stores/User/App'),
-		SettingsStore = require('Stores/User/Settings'),
+import {getApp} from 'Helper/Apps/User';
 
-		AbstractAjaxRemote = require('Remote/AbstractAjax')
-	;
+import {AbstractAjaxRemote} from 'Remote/AbstractAjax';
 
-	/**
-	 * @constructor
-	 * @extends AbstractRemoteStorage
-	 */
-	function RemoteUserAjax()
-	{
-		AbstractAjaxRemote.call(this);
-
+class RemoteUserAjax extends AbstractAjaxRemote
+{
+	constructor() {
+		super();
 		this.oRequests = {};
 	}
-
-	_.extend(RemoteUserAjax.prototype, AbstractAjaxRemote.prototype);
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.folders = function (fCallback)
-	{
+	folders(fCallback) {
 		this.defaultRequest(fCallback, 'Folders', {
 			'SentFolder': Settings.settingsGet('SentFolder'),
 			'DraftFolder': Settings.settingsGet('DraftFolder'),
@@ -46,7 +48,7 @@
 			'TrashFolder': Settings.settingsGet('TrashFolder'),
 			'ArchiveFolder': Settings.settingsGet('ArchiveFolder')
 		}, null, '', ['Folders']);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -58,8 +60,7 @@
 	 * @param {string=} sAdditionalCode
 	 * @param {boolean=} bAdditionalCodeSignMe
 	 */
-	RemoteUserAjax.prototype.login = function (fCallback, sEmail, sLogin, sPassword, bSignMe, sLanguage, sAdditionalCode, bAdditionalCodeSignMe)
-	{
+	login(fCallback, sEmail, sLogin, sPassword, bSignMe, sLanguage, sAdditionalCode, bAdditionalCodeSignMe) {
 		this.defaultRequest(fCallback, 'Login', {
 			'Email': sEmail,
 			'Login': sLogin,
@@ -69,77 +70,69 @@
 			'AdditionalCodeSignMe': bAdditionalCodeSignMe ? '1' : '0',
 			'SignMe': bSignMe ? '1' : '0'
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.getTwoFactor = function (fCallback)
-	{
+	getTwoFactor(fCallback) {
 		this.defaultRequest(fCallback, 'GetTwoFactorInfo');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.createTwoFactor = function (fCallback)
-	{
+	createTwoFactor(fCallback) {
 		this.defaultRequest(fCallback, 'CreateTwoFactorSecret');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.clearTwoFactor = function (fCallback)
-	{
+	clearTwoFactor(fCallback) {
 		this.defaultRequest(fCallback, 'ClearTwoFactorInfo');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.showTwoFactorSecret = function (fCallback)
-	{
+	showTwoFactorSecret(fCallback) {
 		this.defaultRequest(fCallback, 'ShowTwoFactorSecret');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sCode
 	 */
-	RemoteUserAjax.prototype.testTwoFactor = function (fCallback, sCode)
-	{
+	testTwoFactor(fCallback, sCode) {
 		this.defaultRequest(fCallback, 'TestTwoFactorInfo', {
 			'Code': sCode
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {boolean} bEnable
 	 */
-	RemoteUserAjax.prototype.enableTwoFactor = function (fCallback, bEnable)
-	{
+	enableTwoFactor(fCallback, bEnable) {
 		this.defaultRequest(fCallback, 'EnableTwoFactor', {
 			'Enable': bEnable ? '1' : '0'
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.clearTwoFactorInfo = function (fCallback)
-	{
+	clearTwoFactorInfo(fCallback) {
 		this.defaultRequest(fCallback, 'ClearTwoFactorInfo');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.contactsSync = function (fCallback)
-	{
-		this.defaultRequest(fCallback, 'ContactsSync', null, Consts.Defaults.ContactsSyncAjaxTimeout);
-	};
+	contactsSync(fCallback) {
+		this.defaultRequest(fCallback, 'ContactsSync', null, CONTACTS_SYNC_AJAX_TIMEOUT);
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -148,15 +141,14 @@
 	 * @param {string} sUser
 	 * @param {string} sPassword
 	 */
-	RemoteUserAjax.prototype.saveContactsSyncData = function (fCallback, bEnable, sUrl, sUser, sPassword)
-	{
+	saveContactsSyncData(fCallback, bEnable, sUrl, sUser, sPassword) {
 		this.defaultRequest(fCallback, 'SaveContactsSyncData', {
 			'Enable': bEnable ? '1' : '0',
 			'Url': sUrl,
 			'User': sUser,
 			'Password': sPassword
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -164,40 +156,35 @@
 	 * @param {string} sPassword
 	 * @param {boolean=} bNew
 	 */
-	RemoteUserAjax.prototype.accountSetup = function (fCallback, sEmail, sPassword, bNew)
-	{
-		bNew = Utils.isUnd(bNew) ? true : !!bNew;
-
+	accountSetup(fCallback, sEmail, sPassword, bNew = true) {
 		this.defaultRequest(fCallback, 'AccountSetup', {
 			'Email': sEmail,
 			'Password': sPassword,
 			'New': bNew ? '1' : '0'
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sEmailToDelete
 	 */
-	RemoteUserAjax.prototype.accountDelete = function (fCallback, sEmailToDelete)
-	{
+	accountDelete(fCallback, sEmailToDelete) {
 		this.defaultRequest(fCallback, 'AccountDelete', {
 			'EmailToDelete': sEmailToDelete
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {Array} aAccounts
 	 * @param {Array} aIdentities
 	 */
-	RemoteUserAjax.prototype.accountsAndIdentitiesSortOrder = function (fCallback, aAccounts, aIdentities)
-	{
+	accountsAndIdentitiesSortOrder(fCallback, aAccounts, aIdentities) {
 		this.defaultRequest(fCallback, 'AccountsAndIdentitiesSortOrder', {
 			'Accounts': aAccounts,
 			'Identities': aIdentities
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -209,9 +196,7 @@
 	 * @param {string} sSignature
 	 * @param {boolean} bSignatureInsertBefore
 	 */
-	RemoteUserAjax.prototype.identityUpdate = function (fCallback, sId, sEmail, sName, sReplyTo, sBcc,
-		sSignature, bSignatureInsertBefore)
-	{
+	identityUpdate(fCallback, sId, sEmail, sName, sReplyTo, sBcc, sSignature, bSignatureInsertBefore) {
 		this.defaultRequest(fCallback, 'IdentityUpdate', {
 			'Id': sId,
 			'Email': sEmail,
@@ -221,100 +206,96 @@
 			'Signature': sSignature,
 			'SignatureInsertBefore': bSignatureInsertBefore ? '1' : '0'
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sIdToDelete
 	 */
-	RemoteUserAjax.prototype.identityDelete = function (fCallback, sIdToDelete)
-	{
+	identityDelete(fCallback, sIdToDelete) {
 		this.defaultRequest(fCallback, 'IdentityDelete', {
 			'IdToDelete': sIdToDelete
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.accountsAndIdentities = function (fCallback)
-	{
+	accountsAndIdentities(fCallback) {
 		this.defaultRequest(fCallback, 'AccountsAndIdentities');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.accountsCounts = function (fCallback)
-	{
+	accountsCounts(fCallback) {
 		this.defaultRequest(fCallback, 'AccountsCounts');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
+	 * @param {Array} filters
+	 * @param {string} raw
+	 * @param {boolean} isRawIsActive
 	 */
-	RemoteUserAjax.prototype.filtersSave = function (fCallback,
-		aFilters, sRaw, bRawIsActive)
-	{
+	filtersSave(fCallback, filters, raw, isRawIsActive) {
 		this.defaultRequest(fCallback, 'FiltersSave', {
-			'Raw': sRaw,
-			'RawIsActive': bRawIsActive ? '1' : '0',
-			'Filters': _.map(aFilters, function (oItem) {
-				return oItem.toJson();
-			})
+			'Raw': raw,
+			'RawIsActive': boolToAjax(isRawIsActive),
+			'Filters': _.map(filters, (item) => item.toJson())
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.filtersGet = function (fCallback)
-	{
+	filtersGet(fCallback) {
 		this.defaultRequest(fCallback, 'Filters', {});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.templates = function (fCallback)
-	{
+	templates(fCallback) {
 		this.defaultRequest(fCallback, 'Templates', {});
-	};
+	}
 
 	/**
-	 * @param {?Function} fCallback
+	 * @param {Function} fCallback
+	 * @param {string} sID
 	 */
-	RemoteUserAjax.prototype.templateGetById = function (fCallback, sID)
-	{
+	templateGetById(fCallback, sID) {
 		this.defaultRequest(fCallback, 'TemplateGetByID', {
 			'ID': sID
 		});
-	};
+	}
 
 	/**
-	 * @param {?Function} fCallback
+	 * @param {Function} fCallback
+	 * @param {string} sID
 	 */
-	RemoteUserAjax.prototype.templateDelete = function (fCallback, sID)
-	{
+	templateDelete(fCallback, sID) {
 		this.defaultRequest(fCallback, 'TemplateDelete', {
 			'IdToDelete': sID
 		});
-	};
+	}
 
 	/**
-	 * @param {?Function} fCallback
+	 * @param {Function} fCallback
+	 * @param {string} sID
+	 * @param {string} sName
+	 * @param {string} sBody
 	 */
-	RemoteUserAjax.prototype.templateSetup = function (fCallback, sID, sName, sBody)
-	{
+	templateSetup(fCallback, sID, sName, sBody) {
 		this.defaultRequest(fCallback, 'TemplateSetup', {
 			'ID': sID,
 			'Name': sName,
 			'Body': sBody
 		});
-	};
+	}
 
 	/**
-	 * @param {?Function} fCallback
+	 * @param {Function} fCallback
 	 * @param {string} sFolderFullNameRaw
 	 * @param {number=} iOffset = 0
 	 * @param {number=} iLimit = 20
@@ -322,79 +303,68 @@
 	 * @param {string=} sThreadUid = ''
 	 * @param {boolean=} bSilent = false
 	 */
-	RemoteUserAjax.prototype.messageList = function (fCallback, sFolderFullNameRaw, iOffset, iLimit, sSearch, sThreadUid, bSilent)
-	{
-		sFolderFullNameRaw = Utils.pString(sFolderFullNameRaw);
+	messageList(fCallback, sFolderFullNameRaw, iOffset = 0, iLimit = 20, sSearch = '', sThreadUid = '', bSilent = false) {
 
-		var
-			sFolderHash = Cache.getFolderHash(sFolderFullNameRaw),
-			bUseThreads = AppStore.threadsAllowed() && SettingsStore.useThreads(),
-			sInboxUidNext = Cache.getFolderInboxName() === sFolderFullNameRaw ? Cache.getFolderUidNext(sFolderFullNameRaw) : ''
-		;
+		sFolderFullNameRaw = pString(sFolderFullNameRaw);
 
-		bSilent = Utils.isUnd(bSilent) ? false : !!bSilent;
-		iOffset = Utils.isUnd(iOffset) ? 0 : Utils.pInt(iOffset);
-		iLimit = Utils.isUnd(iOffset) ? 20 : Utils.pInt(iLimit);
-		sSearch = Utils.pString(sSearch);
-		sThreadUid = Utils.pString(sThreadUid);
+		const
+			folderHash = getFolderHash(sFolderFullNameRaw),
+			useThreads = AppStore.threadsAllowed() && SettingsStore.useThreads(),
+			inboxUidNext = getFolderInboxName() === sFolderFullNameRaw ? getFolderUidNext(sFolderFullNameRaw) : '';
 
-		if ('' !== sFolderHash && ('' === sSearch || -1 === sSearch.indexOf('is:')))
+		if ('' !== folderHash && ('' === sSearch || -1 === sSearch.indexOf('is:')))
 		{
 			return this.defaultRequest(fCallback, 'MessageList', {},
-				'' === sSearch ? Consts.Defaults.DefaultAjaxTimeout : Consts.Defaults.SearchAjaxTimeout,
-				'MessageList/' + Links.subQueryPrefix() + '/' + Base64.urlsafe_encode([
+				'' === sSearch ? DEFAULT_AJAX_TIMEOUT : SEARCH_AJAX_TIMEOUT,
+				'MessageList/' + subQueryPrefix() + '/' + Base64.urlsafe_encode([
 					sFolderFullNameRaw,
 					iOffset,
 					iLimit,
 					sSearch,
 					AppStore.projectHash(),
-					sFolderHash,
-					sInboxUidNext,
-					bUseThreads ? '1' : '0',
-					bUseThreads ? sThreadUid : ''
+					folderHash,
+					inboxUidNext,
+					useThreads ? '1' : '0',
+					useThreads ? sThreadUid : ''
 				].join(String.fromCharCode(0))), bSilent ? [] : ['MessageList']);
 		}
-		else
-		{
-			return this.defaultRequest(fCallback, 'MessageList', {
-				'Folder': sFolderFullNameRaw,
-				'Offset': iOffset,
-				'Limit': iLimit,
-				'Search': sSearch,
-				'UidNext': sInboxUidNext,
-				'UseThreads': bUseThreads ? '1' : '0',
-				'ThreadUid': bUseThreads ? sThreadUid : ''
-			}, '' === sSearch ? Consts.Defaults.DefaultAjaxTimeout : Consts.Defaults.SearchAjaxTimeout,
-				'', bSilent ? [] : ['MessageList']);
-		}
-	};
+
+		return this.defaultRequest(fCallback, 'MessageList', {
+			Folder: sFolderFullNameRaw,
+			Offset: iOffset,
+			Limit: iLimit,
+			Search: sSearch,
+			UidNext: inboxUidNext,
+			UseThreads: useThreads ? '1' : '0',
+			ThreadUid: useThreads ? sThreadUid : ''
+		}, '' === sSearch ? DEFAULT_AJAX_TIMEOUT : SEARCH_AJAX_TIMEOUT, '', bSilent ? [] : ['MessageList']);
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {Array} aDownloads
 	 */
-	RemoteUserAjax.prototype.messageUploadAttachments = function (fCallback, aDownloads)
-	{
+	messageUploadAttachments(fCallback, aDownloads) {
 		this.defaultRequest(fCallback, 'MessageUploadAttachments', {
 			'Attachments': aDownloads
 		}, 999000);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sFolderFullNameRaw
 	 * @param {number} iUid
-	 * @return {boolean}
+	 * @returns {boolean}
 	 */
-	RemoteUserAjax.prototype.message = function (fCallback, sFolderFullNameRaw, iUid)
-	{
-		sFolderFullNameRaw = Utils.pString(sFolderFullNameRaw);
-		iUid = Utils.pInt(iUid);
+	message(fCallback, sFolderFullNameRaw, iUid) {
 
-		if (Cache.getFolderFromCacheList(sFolderFullNameRaw) && 0 < iUid)
+		sFolderFullNameRaw = pString(sFolderFullNameRaw);
+		iUid = pInt(iUid);
+
+		if (getFolderFromCacheList(sFolderFullNameRaw) && 0 < iUid)
 		{
 			this.defaultRequest(fCallback, 'Message', {}, null,
-				'Message/' + Links.subQueryPrefix() + '/' + Base64.urlsafe_encode([
+				'Message/' + subQueryPrefix() + '/' + Base64.urlsafe_encode([
 					sFolderFullNameRaw,
 					iUid,
 					AppStore.projectHash(),
@@ -405,102 +375,96 @@
 		}
 
 		return false;
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {Array} aExternals
 	 */
-	RemoteUserAjax.prototype.composeUploadExternals = function (fCallback, aExternals)
-	{
+	composeUploadExternals(fCallback, aExternals) {
 		this.defaultRequest(fCallback, 'ComposeUploadExternals', {
 			'Externals': aExternals
 		}, 999000);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sUrl
 	 * @param {string} sAccessToken
 	 */
-	RemoteUserAjax.prototype.composeUploadDrive = function (fCallback, sUrl, sAccessToken)
-	{
+	composeUploadDrive(fCallback, sUrl, sAccessToken) {
 		this.defaultRequest(fCallback, 'ComposeUploadDrive', {
 			'AccessToken': sAccessToken,
 			'Url': sUrl
 		}, 999000);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
-	 * @param {string} sFolder
-	 * @param {Array=} aList = []
+	 * @param {string} folder
+	 * @param {Array=} list = []
 	 */
-	RemoteUserAjax.prototype.folderInformation = function (fCallback, sFolder, aList)
-	{
-		var
-			bRequest = true,
-			aUids = []
-		;
+	folderInformation(fCallback, folder, list = []) {
 
-		if (Utils.isArray(aList) && 0 < aList.length)
+		let request = true;
+		const uids = [];
+
+		if (isArray(list) && 0 < list.length)
 		{
-			bRequest = false;
-			_.each(aList, function (oMessageListItem) {
-				if (!Cache.getMessageFlagsFromCache(oMessageListItem.folderFullNameRaw, oMessageListItem.uid))
+			request = false;
+			_.each(list, (messageListItem) => {
+				if (!getMessageFlagsFromCache(messageListItem.folderFullNameRaw, messageListItem.uid))
 				{
-					aUids.push(oMessageListItem.uid);
+					uids.push(messageListItem.uid);
 				}
 
-				if (0 < oMessageListItem.threads().length)
+				if (0 < messageListItem.threads().length)
 				{
-					_.each(oMessageListItem.threads(), function (sUid) {
-						if (!Cache.getMessageFlagsFromCache(oMessageListItem.folderFullNameRaw, sUid))
+					_.each(messageListItem.threads(), (uid) => {
+						if (!getMessageFlagsFromCache(messageListItem.folderFullNameRaw, uid))
 						{
-							aUids.push(sUid);
+							uids.push(uid);
 						}
 					});
 				}
 			});
 
-			if (0 < aUids.length)
+			if (0 < uids.length)
 			{
-				bRequest = true;
+				request = true;
 			}
 		}
 
-		if (bRequest)
+		if (request)
 		{
 			this.defaultRequest(fCallback, 'FolderInformation', {
-				'Folder': sFolder,
-				'FlagsUids': Utils.isArray(aUids) ? aUids.join(',') : '',
-				'UidNext': Cache.getFolderInboxName() === sFolder ? Cache.getFolderUidNext(sFolder) : ''
+				'Folder': folder,
+				'FlagsUids': isArray(uids) ? uids.join(',') : '',
+				'UidNext': getFolderInboxName() === folder ? getFolderUidNext(folder) : ''
 			});
 		}
 		else if (SettingsStore.useThreads())
 		{
-			require('App/User').reloadFlagsCurrentMessageListAndMessageFromCache();
+			getApp().reloadFlagsCurrentMessageListAndMessageFromCache();
 		}
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {Array} aFolders
 	 */
-	RemoteUserAjax.prototype.folderInformationMultiply = function (fCallback, aFolders)
-	{
+	folderInformationMultiply(fCallback, aFolders) {
 		this.defaultRequest(fCallback, 'FolderInformationMultiply', {
 			'Folders': aFolders
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.logout = function (fCallback)
-	{
+	logout(fCallback) {
 		this.defaultRequest(fCallback, 'Logout');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -508,14 +472,13 @@
 	 * @param {Array} aUids
 	 * @param {boolean} bSetFlagged
 	 */
-	RemoteUserAjax.prototype.messageSetFlagged = function (fCallback, sFolderFullNameRaw, aUids, bSetFlagged)
-	{
+	messageSetFlagged(fCallback, sFolderFullNameRaw, aUids, bSetFlagged) {
 		this.defaultRequest(fCallback, 'MessageSetFlagged', {
 			'Folder': sFolderFullNameRaw,
 			'Uids': aUids.join(','),
 			'SetAction': bSetFlagged ? '1' : '0'
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -523,27 +486,27 @@
 	 * @param {Array} aUids
 	 * @param {boolean} bSetSeen
 	 */
-	RemoteUserAjax.prototype.messageSetSeen = function (fCallback, sFolderFullNameRaw, aUids, bSetSeen)
-	{
+	messageSetSeen(fCallback, sFolderFullNameRaw, aUids, bSetSeen) {
 		this.defaultRequest(fCallback, 'MessageSetSeen', {
 			'Folder': sFolderFullNameRaw,
 			'Uids': aUids.join(','),
 			'SetAction': bSetSeen ? '1' : '0'
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sFolderFullNameRaw
 	 * @param {boolean} bSetSeen
+	 * @param {Array} aThreadUids = null
 	 */
-	RemoteUserAjax.prototype.messageSetSeenToAll = function (fCallback, sFolderFullNameRaw, bSetSeen)
-	{
+	messageSetSeenToAll(fCallback, sFolderFullNameRaw, bSetSeen, aThreadUids = null) {
 		this.defaultRequest(fCallback, 'MessageSetSeenToAll', {
 			'Folder': sFolderFullNameRaw,
-			'SetAction': bSetSeen ? '1' : '0'
+			'SetAction': bSetSeen ? '1' : '0',
+			'ThreadUids': aThreadUids ? aThreadUids.join(',') : ''
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -554,6 +517,7 @@
 	 * @param {string} sTo
 	 * @param {string} sCc
 	 * @param {string} sBcc
+	 * @param {string} sReplyTo
 	 * @param {string} sSubject
 	 * @param {boolean} bTextIsHtml
 	 * @param {string} sText
@@ -563,9 +527,9 @@
 	 * @param {string} sReferences
 	 * @param {boolean} bMarkAsImportant
 	 */
-	RemoteUserAjax.prototype.saveMessage = function (fCallback, sIdentityID, sMessageFolder, sMessageUid, sDraftFolder,
-		sTo, sCc, sBcc, sReplyTo, sSubject, bTextIsHtml, sText, aAttachments, aDraftInfo, sInReplyTo, sReferences, bMarkAsImportant)
-	{
+	saveMessage(fCallback, sIdentityID, sMessageFolder, sMessageUid, sDraftFolder,
+		sTo, sCc, sBcc, sReplyTo, sSubject, bTextIsHtml, sText, aAttachments, aDraftInfo, sInReplyTo, sReferences, bMarkAsImportant) {
+
 		this.defaultRequest(fCallback, 'SaveMessage', {
 			'IdentityID': sIdentityID,
 			'MessageFolder': sMessageFolder,
@@ -583,9 +547,8 @@
 			'References': sReferences,
 			'MarkAsImportant': bMarkAsImportant ? '1' : '0',
 			'Attachments': aAttachments
-		}, Consts.Defaults.SaveMessageAjaxTimeout);
-	};
-
+		}, SAVE_MESSAGE_AJAX_TIMEOUT);
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -595,8 +558,7 @@
 	 * @param {string} sSubject
 	 * @param {string} sText
 	 */
-	RemoteUserAjax.prototype.sendReadReceiptMessage = function (fCallback, sMessageFolder, sMessageUid, sReadReceipt, sSubject, sText)
-	{
+	sendReadReceiptMessage(fCallback, sMessageFolder, sMessageUid, sReadReceipt, sSubject, sText) {
 		this.defaultRequest(fCallback, 'SendReadReceiptMessage', {
 			'MessageFolder': sMessageFolder,
 			'MessageUid': sMessageUid,
@@ -604,7 +566,7 @@
 			'Subject': sSubject,
 			'Text': sText
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -627,10 +589,10 @@
 	 * @param {boolean} bRequestReadReceipt
 	 * @param {boolean} bMarkAsImportant
 	 */
-	RemoteUserAjax.prototype.sendMessage = function (fCallback, sIdentityID, sMessageFolder, sMessageUid, sSentFolder,
+	sendMessage(fCallback, sIdentityID, sMessageFolder, sMessageUid, sSentFolder,
 		sTo, sCc, sBcc, sReplyTo, sSubject, bTextIsHtml, sText, aAttachments, aDraftInfo, sInReplyTo, sReferences,
-		bRequestDsn, bRequestReadReceipt, bMarkAsImportant)
-	{
+		bRequestDsn, bRequestReadReceipt, bMarkAsImportant) {
+
 		this.defaultRequest(fCallback, 'SendMessage', {
 			'IdentityID': sIdentityID,
 			'MessageFolder': sMessageFolder,
@@ -650,76 +612,83 @@
 			'ReadReceiptRequest': bRequestReadReceipt ? '1' : '0',
 			'MarkAsImportant': bMarkAsImportant ? '1' : '0',
 			'Attachments': aAttachments
-		}, Consts.Defaults.SendMessageAjaxTimeout);
-	};
+		}, SEND_MESSAGE_AJAX_TIMEOUT);
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {Object} oData
 	 */
-	RemoteUserAjax.prototype.saveSystemFolders = function (fCallback, oData)
-	{
+	saveSystemFolders(fCallback, oData) {
 		this.defaultRequest(fCallback, 'SystemFoldersUpdate', oData);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {Object} oData
 	 */
-	RemoteUserAjax.prototype.saveSettings = function (fCallback, oData)
-	{
+	saveSettings(fCallback, oData) {
 		this.defaultRequest(fCallback, 'SettingsUpdate', oData);
-	};
+	}
+
+	/**
+	 * @param {string} key
+	 * @param {?Function} valueFn
+	 * @param {?Function} fn
+	 */
+	saveSettingsHelper(key, valueFn, fn) {
+		return (value) => {
+			this.saveSettings(fn || null, {
+				[key]: valueFn ? valueFn(value) : value
+			});
+		};
+	}
 
 	/**
 	 * @param {?Function} fCallback
-	 * @param {string} sPrevPassword
-	 * @param {string} sNewPassword
+	 * @param {string} prevPassword
+	 * @param {string} newPassword
 	 */
-	RemoteUserAjax.prototype.changePassword = function (fCallback, sPrevPassword, sNewPassword)
-	{
+	changePassword(fCallback, prevPassword, newPassword) {
 		this.defaultRequest(fCallback, 'ChangePassword', {
-			'PrevPassword': sPrevPassword,
-			'NewPassword': sNewPassword
+			'PrevPassword': prevPassword,
+			'NewPassword': newPassword
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sFolderFullNameRaw
 	 */
-	RemoteUserAjax.prototype.folderClear = function (fCallback, sFolderFullNameRaw)
-	{
+	folderClear(fCallback, sFolderFullNameRaw) {
 		this.defaultRequest(fCallback, 'FolderClear', {
 			'Folder': sFolderFullNameRaw
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sFolderFullNameRaw
 	 * @param {boolean} bSubscribe
 	 */
-	RemoteUserAjax.prototype.folderSetSubscribe = function (fCallback, sFolderFullNameRaw, bSubscribe)
-	{
+	folderSetSubscribe(fCallback, sFolderFullNameRaw, bSubscribe) {
 		this.defaultRequest(fCallback, 'FolderSubscribe', {
 			'Folder': sFolderFullNameRaw,
 			'Subscribe': bSubscribe ? '1' : '0'
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sFolderFullNameRaw
 	 * @param {boolean} bCheckable
 	 */
-	RemoteUserAjax.prototype.folderSetCheckable = function (fCallback, sFolderFullNameRaw, bCheckable)
-	{
+	folderSetCheckable(fCallback, sFolderFullNameRaw, bCheckable) {
 		this.defaultRequest(fCallback, 'FolderCheckable', {
 			'Folder': sFolderFullNameRaw,
 			'Checkable': bCheckable ? '1' : '0'
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -729,8 +698,7 @@
 	 * @param {string=} sLearning
 	 * @param {boolean=} bMarkAsRead
 	 */
-	RemoteUserAjax.prototype.messagesMove = function (fCallback, sFolder, sToFolder, aUids, sLearning, bMarkAsRead)
-	{
+	messagesMove(fCallback, sFolder, sToFolder, aUids, sLearning, bMarkAsRead) {
 		this.defaultRequest(fCallback, 'MessageMove', {
 			'FromFolder': sFolder,
 			'ToFolder': sToFolder,
@@ -738,7 +706,7 @@
 			'MarkAsRead': bMarkAsRead ? '1' : '0',
 			'Learning': sLearning || ''
 		}, null, '', ['MessageList']);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -746,43 +714,39 @@
 	 * @param {string} sToFolder
 	 * @param {Array} aUids
 	 */
-	RemoteUserAjax.prototype.messagesCopy = function (fCallback, sFolder, sToFolder, aUids)
-	{
+	messagesCopy(fCallback, sFolder, sToFolder, aUids) {
 		this.defaultRequest(fCallback, 'MessageCopy', {
 			'FromFolder': sFolder,
 			'ToFolder': sToFolder,
 			'Uids': aUids.join(',')
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sFolder
 	 * @param {Array} aUids
 	 */
-	RemoteUserAjax.prototype.messagesDelete = function (fCallback, sFolder, aUids)
-	{
+	messagesDelete(fCallback, sFolder, aUids) {
 		this.defaultRequest(fCallback, 'MessageDelete', {
 			'Folder': sFolder,
 			'Uids': aUids.join(',')
 		}, null, '', ['MessageList']);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.appDelayStart = function (fCallback)
-	{
+	appDelayStart(fCallback) {
 		this.defaultRequest(fCallback, 'AppDelayStart');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.quota = function (fCallback)
-	{
+	quota(fCallback) {
 		this.defaultRequest(fCallback, 'Quota');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -790,14 +754,13 @@
 	 * @param {number} iLimit
 	 * @param {string} sSearch
 	 */
-	RemoteUserAjax.prototype.contacts = function (fCallback, iOffset, iLimit, sSearch)
-	{
+	contacts(fCallback, iOffset, iLimit, sSearch) {
 		this.defaultRequest(fCallback, 'Contacts', {
 			'Offset': iOffset,
 			'Limit': iLimit,
 			'Search': sSearch
 		}, null, '', ['Contacts']);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
@@ -805,103 +768,91 @@
 	 * @param {string} sUid
 	 * @param {Array} aProperties
 	 */
-	RemoteUserAjax.prototype.contactSave = function (fCallback, sRequestUid, sUid, aProperties)
-	{
+	contactSave(fCallback, sRequestUid, sUid, aProperties) {
 		this.defaultRequest(fCallback, 'ContactSave', {
 			'RequestUid': sRequestUid,
-			'Uid': Utils.trim(sUid),
+			'Uid': trim(sUid),
 			'Properties': aProperties
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {Array} aUids
 	 */
-	RemoteUserAjax.prototype.contactsDelete = function (fCallback, aUids)
-	{
+	contactsDelete(fCallback, aUids) {
 		this.defaultRequest(fCallback, 'ContactsDelete', {
 			'Uids': aUids.join(',')
 		});
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 * @param {string} sQuery
 	 * @param {number} iPage
 	 */
-	RemoteUserAjax.prototype.suggestions = function (fCallback, sQuery, iPage)
-	{
+	suggestions(fCallback, sQuery, iPage) {
 		this.defaultRequest(fCallback, 'Suggestions', {
 			'Query': sQuery,
 			'Page': iPage
 		}, null, '', ['Suggestions']);
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.clearUserBackground = function (fCallback)
-	{
+	clearUserBackground(fCallback) {
 		this.defaultRequest(fCallback, 'ClearUserBackground');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.facebookUser = function (fCallback)
-	{
+	facebookUser(fCallback) {
 		this.defaultRequest(fCallback, 'SocialFacebookUserInformation');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.facebookDisconnect = function (fCallback)
-	{
+	facebookDisconnect(fCallback) {
 		this.defaultRequest(fCallback, 'SocialFacebookDisconnect');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.twitterUser = function (fCallback)
-	{
+	twitterUser(fCallback) {
 		this.defaultRequest(fCallback, 'SocialTwitterUserInformation');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.twitterDisconnect = function (fCallback)
-	{
+	twitterDisconnect(fCallback) {
 		this.defaultRequest(fCallback, 'SocialTwitterDisconnect');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.googleUser = function (fCallback)
-	{
+	googleUser(fCallback) {
 		this.defaultRequest(fCallback, 'SocialGoogleUserInformation');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.googleDisconnect = function (fCallback)
-	{
+	googleDisconnect(fCallback) {
 		this.defaultRequest(fCallback, 'SocialGoogleDisconnect');
-	};
+	}
 
 	/**
 	 * @param {?Function} fCallback
 	 */
-	RemoteUserAjax.prototype.socialUsers = function (fCallback)
-	{
+	socialUsers(fCallback) {
 		this.defaultRequest(fCallback, 'SocialUsers');
-	};
+	}
+}
 
-	module.exports = new RemoteUserAjax();
-
-}());
+export default new RemoteUserAjax();

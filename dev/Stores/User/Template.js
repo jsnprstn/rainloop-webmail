@@ -1,49 +1,38 @@
 
-(function () {
+import ko from 'ko';
+import _ from '_';
 
-	'use strict';
+// import Remote from 'Remote/User/Ajax';
 
-	var
-		_ = require('_'),
-		ko = require('ko')
-
-//		Remote = require('Remote/User/Ajax')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function TemplateUserStore()
-	{
+class TemplateUserStore
+{
+	constructor() {
 		this.templates = ko.observableArray([]);
-		this.templates.loading = ko.observable(false).extend({'throttle': 100});
+		this.templates.loading = ko.observable(false).extend({throttle: 100});
 
-		this.templatesNames = ko.observableArray([]).extend({'throttle': 1000});
+		this.templatesNames = ko.observableArray([]).extend({throttle: 1000});
 		this.templatesNames.skipFirst = true;
 
 		this.subscribers();
 	}
 
-	TemplateUserStore.prototype.subscribers = function ()
-	{
-		this.templates.subscribe(function (aList) {
-			this.templatesNames(_.compact(_.map(aList, function (oItem) {
-				return oItem ? oItem.name : null;
-			})));
-		}, this);
+	subscribers() {
 
-//		this.templatesNames.subscribe(function (aList) {
-//			if (this.templatesNames.skipFirst)
-//			{
-//				this.templatesNames.skipFirst = false;
-//			}
-//			else if (aList && 1 < aList.length)
-//			{
-//				Remote.templatesSortOrder(null, aList);
-//			}
-//		}, this);
-	};
+		this.templates.subscribe((list) => {
+			this.templatesNames(_.compact(_.map(list, (item) => (item ? item.name : null))));
+		});
 
-	module.exports = new TemplateUserStore();
+		// this.templatesNames.subscribe((aList) => {
+		// 	if (this.templatesNames.skipFirst)
+		// 	{
+		// 		this.templatesNames.skipFirst = false;
+		// 	}
+		// 	else if (aList && 1 < aList.length)
+		// 	{
+		// 		Remote.templatesSortOrder(null, aList);
+		// 	}
+		// });
+	}
+}
 
-}());
+export default new TemplateUserStore();

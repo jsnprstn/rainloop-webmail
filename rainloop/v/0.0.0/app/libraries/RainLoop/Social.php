@@ -99,16 +99,16 @@ class Social
 		if ($oAccount && $oTwitter)
 		{
 			$oSettings = $this->oActions->SettingsProvider()->Load($oAccount);
-			$sEncodedeData = $oSettings->GetConf('TwitterAccessToken', '');
+			$sEncodedData = $oSettings->GetConf('TwitterAccessToken', '');
 
-			if (!empty($sEncodedeData))
+			if (!empty($sEncodedData))
 			{
-				$aData = \RainLoop\Utils::DecodeKeyValues($sEncodedeData);
-				if (is_array($aData) && isset($aData['user_id']))
+				$aData = \RainLoop\Utils::DecodeKeyValues($sEncodedData);
+				if (is_array($aData) && isset($aData['id']))
 				{
 					$this->oActions->StorageProvider()->Clear(null,
 						\RainLoop\Providers\Storage\Enumerations\StorageType::NOBODY,
-						$this->TwitterUserLoginStorageKey($oTwitter, $aData['user_id'])
+						$this->TwitterUserLoginStorageKey($oTwitter, $aData['id'])
 					);
 				}
 			}
@@ -125,9 +125,54 @@ class Social
 	/**
 	 * @return string
 	 */
-	public function GooglePopupService($bGmail = false)
+	public function popupServiceResult($sTypeStr, $sLoginUrl, $bLogin, $iErrorCode)
 	{
 		$sResult = '';
+		$bAppCssDebug = !!$this->oActions->Config()->Get('labs', 'use_app_debug_css', false);
+
+		$sIcon = $sTypeStr;
+		if ('facebook' === $sIcon)
+		{
+			$sIcon = $sIcon.'-alt';
+		}
+
+		if ($sLoginUrl)
+		{
+			$this->oHttp->ServerNoCache();
+			@\header('Content-Type: text/html; charset=utf-8');
+
+			$sResult = \strtr(\file_get_contents(APP_VERSION_ROOT_PATH.'app/templates/Social.html'), array(
+				'{{RefreshMeta}}' => '<meta http-equiv="refresh" content="0; URL='.$sLoginUrl.'" />',
+				'{{Stylesheet}}' => $this->oActions->StaticPath('css/social'.($bAppCssDebug ? '' : '.min').'.css'),
+				'{{Icon}}' => $sIcon,
+				'{{Script}}' => ''
+			));
+		}
+		else
+		{
+			$this->oHttp->ServerNoCache();
+			@\header('Content-Type: text/html; charset=utf-8');
+
+			$sCallBackType = $bLogin ? '_login' : '';
+			$sConnectionFunc = 'rl_'.\md5(\RainLoop\Utils::GetConnectionToken()).'_'.$sTypeStr.$sCallBackType.'_service';
+
+			$sResult = \strtr(\file_get_contents(APP_VERSION_ROOT_PATH.'app/templates/Social.html'), array(
+				'{{RefreshMeta}}' => '',
+				'{{Stylesheet}}' => $this->oActions->StaticPath('css/social'.($bAppCssDebug ? '' : '.min').'.css'),
+				'{{Icon}}' => $sIcon,
+				'{{Script}}' => '<script data-cfasync="false">opener && opener.'.$sConnectionFunc.' && opener.'.
+					$sConnectionFunc.'('.$iErrorCode.'); self && self.close && self.close();</script>'
+			));
+		}
+
+		return $sResult;
+	}
+
+	/**
+	 * @return string
+	 */
+	public function GooglePopupService($bGmail = false)
+	{
 		$sLoginUrl = '';
 		$oAccount = null;
 
@@ -276,20 +321,7 @@ class Social
 			$this->oActions->Logger()->WriteException($oException, \MailSo\Log\Enumerations\Type::ERROR);
 		}
 
-		if ($sLoginUrl)
-		{
-			$this->oActions->Location($sLoginUrl);
-		}
-		else
-		{
-			@\header('Content-Type: text/html; charset=utf-8');
-			$sCallBackType = $bLogin ? '_login' : '';
-			$sConnectionFunc = 'rl_'.\md5(\RainLoop\Utils::GetConnectionToken()).'_google'.$sCallBackType.'_service';
-			$sResult = '<script data-cfasync="false">opener && opener.'.$sConnectionFunc.' && opener.'.
-				$sConnectionFunc.'('.$iErrorCode.'); self && self.close && self.close();</script>';
-		}
-
-		return $sResult;
+		return $this->popupServiceResult('google', $sLoginUrl, $bLogin, $iErrorCode);
 	}
 
 	/**
@@ -297,7 +329,6 @@ class Social
 	 */
 	public function FacebookPopupService()
 	{
-		$sResult = '';
 		$sLoginUrl = '';
 		$sSocialName = '';
 
@@ -316,30 +347,33 @@ class Social
 
 		$oAccount = $this->oActions->GetAccount();
 
-		$oFacebook = $this->FacebookConnector($oAccount);
+		$sRedirectUrl = '';
+		$oFacebook = $this->FacebookConnector($oAccount, $sRedirectUrl);
 		if ($oFacebook)
 		{
 			try
 			{
-				$oSession = $oFacebook->getSessionFromRedirect();
-				if (!$oSession && !$this->oHttp->HasQuery('state'))
-				{
-					$sLoginUrl = $oFacebook->getLoginUrl().'&display=popup';
-				}
-				else if ($oSession)
-				{
-					$oRequest = new \Facebook\FacebookRequest($oSession, 'GET', '/me');
-					$oResponse = $oRequest->execute();
-					$oGraphObject = $oResponse->getGraphObject();
+				$oRedirectLoginHelper = $oFacebook->getRedirectLoginHelper();
+				$oAccessToken = $oRedirectLoginHelper->getAccessToken();
 
-					$mData = $oGraphObject->getProperty('id');
-					$sSocialName = $oGraphObject->getProperty('name');
+				if (!$oAccessToken && !$this->oHttp->HasQuery('state'))
+				{
+					$sLoginUrl = $oFacebook->getRedirectLoginHelper()->getLoginUrl($sRedirectUrl.'&display=popup');
+				}
+				else if ($oAccessToken)
+				{
+					$oResponse = $oFacebook->get('/me?fields=id,name', (string) $oAccessToken);
+					$oGraphUser = $oResponse->getGraphUser();
+
+					$mData = $oGraphUser->getId();
+					$sSocialName = $oGraphUser->getName();
 
 					if ($oAccount)
 					{
 						if ($mData && 0 < \strlen($mData))
 						{
 							$aUserData = array(
+								'id' => $mData,
 								'Email' => $oAccount->Email(),
 								'Password' => $oAccount->Password()
 							);
@@ -347,7 +381,6 @@ class Social
 							$oSettings = $this->oActions->SettingsProvider()->Load($oAccount);
 							$oSettings->SetConf('FacebookSocialName', $sSocialName);
 							$oSettings->SetConf('FacebookAccessToken', \RainLoop\Utils::EncodeKeyValues(array('id' => $mData)));
-
 
 							$this->oActions->SettingsProvider()->Save($oAccount, $oSettings);
 
@@ -393,23 +426,7 @@ class Social
 			}
 		}
 
-		if ($sLoginUrl)
-		{
-			$this->oActions->Location($sLoginUrl);
-		}
-		else
-		{
-			$this->oHttp->ServerNoCache();
-
-			@\header('Content-Type: text/html; charset=utf-8');
-
-			$sCallBackType = $bLogin ? '_login' : '';
-			$sConnectionFunc = 'rl_'.\md5(\RainLoop\Utils::GetConnectionToken()).'_facebook'.$sCallBackType.'_service';
-			$sResult = '<script data-cfasync="false">opener && opener.'.$sConnectionFunc.' && opener.'.
-				$sConnectionFunc.'('.$iErrorCode.'); self && self.close && self.close();</script>';
-		}
-
-		return $sResult;
+		return $this->popupServiceResult('facebook', $sLoginUrl, $bLogin, $iErrorCode);
 	}
 
 	/**
@@ -417,7 +434,6 @@ class Social
 	 */
 	public function TwitterPopupService()
 	{
-		$sResult = '';
 		$sLoginUrl = '';
 
 		$sSocialName = '';
@@ -468,6 +484,8 @@ class Social
 								$aAccessToken = $oTwitter->extract_params($oTwitter->response['response']);
 								if ($aAccessToken && isset($aAccessToken['oauth_token']) && !empty($aAccessToken['user_id']))
 								{
+									$aAccessToken['id'] = $aAccessToken['user_id'];
+
 									$oTwitter->config['user_token'] = $aAccessToken['oauth_token'];
 									$oTwitter->config['user_secret'] = $aAccessToken['oauth_token_secret'];
 
@@ -475,6 +493,7 @@ class Social
 									$sSocialName = \trim($sSocialName);
 
 									$aUserData = array(
+										'id' => $aAccessToken['id'],
 										'Email' => $oAccount->Email(),
 										'Password' => $oAccount->Password()
 									);
@@ -486,7 +505,7 @@ class Social
 
 									$this->oActions->StorageProvider()->Put(null,
 										\RainLoop\Providers\Storage\Enumerations\StorageType::NOBODY,
-										$this->TwitterUserLoginStorageKey($oTwitter, $aAccessToken['user_id']),
+										$this->TwitterUserLoginStorageKey($oTwitter, $aAccessToken['id']),
 										\RainLoop\Utils::EncodeKeyValues($aUserData));
 
 									$iErrorCode = 0;
@@ -544,8 +563,7 @@ class Social
 									$aUserData = \RainLoop\Utils::DecodeKeyValues($sUserData);
 
 									if ($aUserData && \is_array($aUserData) &&
-										!empty($aUserData['Email']) &&
-										isset($aUserData['Password']))
+										!empty($aUserData['Email']) && isset($aUserData['Password']))
 									{
 										$iErrorCode = $this->loginProcess($oAccount, $aUserData['Email'], $aUserData['Password']);
 									}
@@ -585,20 +603,7 @@ class Social
 			$this->oActions->Logger()->WriteException($oException, \MailSo\Log\Enumerations\Type::ERROR);
 		}
 
-		if ($sLoginUrl)
-		{
-			$this->oActions->Location($sLoginUrl);
-		}
-		else
-		{
-			@\header('Content-Type: text/html; charset=utf-8');
-			$sCallBackType = $bLogin ? '_login' : '';
-			$sConnectionFunc = 'rl_'.\md5(\RainLoop\Utils::GetConnectionToken()).'_twitter'.$sCallBackType.'_service';
-			$sResult = '<script data-cfasync="false">opener && opener.'.$sConnectionFunc.' && opener.'.
-				$sConnectionFunc.'('.$iErrorCode.'); self && self.close && self.close();</script>';
-		}
-
-		return $sResult;
+		return $this->popupServiceResult('twitter', $sLoginUrl, $bLogin, $iErrorCode);
 	}
 
 	/**
@@ -674,24 +679,23 @@ class Social
 
 	/**
 	 * @param \RainLoop\Model\Account|null $oAccount = null
+	 * @param string $sRedirectUrl = ''
 	 *
 	 * @return \RainLoop\Common\RainLoopFacebookRedirectLoginHelper|null
 	 */
-	public function FacebookConnector($oAccount = null)
+	public function FacebookConnector($oAccount = null, &$sRedirectUrl = '')
 	{
 		$oFacebook = false;
 		$oConfig = $this->oActions->Config();
 		$sAppID = \trim($oConfig->Get('social', 'fb_app_id', ''));
+		$sAppSecret = \trim($oConfig->Get('social', 'fb_app_secret', ''));
 
 		if (\version_compare(PHP_VERSION, '5.4.0', '>=') &&
 			$oConfig->Get('social', 'fb_enable', false) && '' !== $sAppID &&
 			'' !== \trim($oConfig->Get('social', 'fb_app_secret', '')) &&
-			\class_exists('Facebook\FacebookSession')
+			\class_exists('Facebook\Facebook')
 		)
 		{
-			\Facebook\FacebookSession::setDefaultApplication($sAppID,
-				\trim($oConfig->Get('social', 'fb_app_secret', '')));
-
 			$sRedirectUrl = $this->oHttp->GetFullUrl().'?SocialFacebook';
 			if (0 < \strlen($this->oActions->GetSpecAuthToken()))
 			{
@@ -707,12 +711,12 @@ class Social
 			{
 				$oAccount = $this->oActions->GetAccount();
 
-				$oFacebook = new \RainLoop\Common\RainLoopFacebookRedirectLoginHelper($sRedirectUrl);
-				$oFacebook->initRainLoopData(array(
-					'rlAppId' => $sAppID,
-					'rlAccount' => $oAccount,
-					'rlUserHash' => \RainLoop\Utils::GetConnectionToken(),
-					'rlStorageProvaider' => $this->oActions->StorageProvider()
+				$oFacebook = new \Facebook\Facebook(array(
+					'app_id' => $sAppID, // Replace {app-id} with your app id
+					'app_secret' => $sAppSecret,
+					'persistent_data_handler' => new \RainLoop\Common\FacebookRainLoopPersistentDataHandler(
+						$oAccount, \RainLoop\Utils::GetConnectionToken(), $this->oActions->StorageProvider()
+					)
 				));
 			}
 			catch (\Exception $oException)
@@ -737,7 +741,7 @@ class Social
 	 */
 	public function FacebookUserLoginStorageKey($oFacebook, $sFacebookUserId)
 	{
-		return \implode('_', array('facebookNew', \md5($oFacebook->GetRLAppId()), $sFacebookUserId, APP_SALT));
+		return \implode('_', array('facebookNew', \md5($oFacebook->getApp()->getId()), $sFacebookUserId, APP_SALT));
 	}
 
 	/**
@@ -745,7 +749,7 @@ class Social
 	 */
 	public function TwitterUserLoginStorageKey($oTwitter, $sTwitterUserId)
 	{
-		return \implode('_', array('twitter', \md5($oTwitter->config['consumer_secret']), $sTwitterUserId, APP_SALT));
+		return \implode('_', array('twitter_2', \md5($oTwitter->config['consumer_secret']), $sTwitterUserId, APP_SALT));
 	}
 
 	/**
@@ -761,7 +765,7 @@ class Social
 
 		try
 		{
-			$oAccount = $this->oActions->LoginProcess($sEmail, $sPassword);
+			$oAccount = $this->oActions->LoginProcess($sEmail, $sPassword, '', '', false, true);
 			if ($oAccount instanceof \RainLoop\Model\Account)
 			{
 				$this->oActions->AuthToken($oAccount);

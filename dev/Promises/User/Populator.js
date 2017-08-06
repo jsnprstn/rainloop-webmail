@@ -1,105 +1,80 @@
 
-(function () {
+import _ from '_';
 
-	'use strict';
+import {UNUSED_OPTION_VALUE} from 'Common/Consts';
+import {isArray, isNormal, pInt, isUnd, noop} from 'Common/Utils';
+import {ClientSideKeyName, ServerFolderType} from 'Common/Enums';
+import * as Cache from 'Common/Cache';
 
-	var
-		_ = require('_'),
+import * as Settings from 'Storage/Settings';
+import * as Local from 'Storage/Client';
 
-		Consts = require('Common/Consts'),
-		Enums = require('Common/Enums'),
-		Utils = require('Common/Utils'),
-		Cache = require('Common/Cache'),
+import AppStore from 'Stores/User/App';
+import FolderStore from 'Stores/User/Folder';
 
-		AppStore = require('Stores/User/App'),
-		FolderStore = require('Stores/User/Folder'),
+import Remote from 'Remote/User/Ajax';
 
-		Settings = require('Storage/Settings'),
-		Local = require('Storage/Client'),
+import {FolderModel} from 'Model/Folder';
+import {AbstractBasicPromises} from 'Promises/AbstractBasic';
 
-		FolderModel = require('Model/Folder'),
-
-		AbstractBasicPromises = require('Promises/AbstractBasic')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function PromisesUserPopulator()
-	{
-		AbstractBasicPromises.call(this);
-	}
-
-	_.extend(PromisesUserPopulator.prototype, AbstractBasicPromises.prototype);
-
+class PromisesUserPopulator extends AbstractBasicPromises
+{
 	/**
 	 * @param {string} sFullNameHash
-	 * @return {boolean}
+	 * @param {Array?} expandedFolders
+	 * @returns {boolean}
 	 */
-	PromisesUserPopulator.prototype.isFolderExpanded = function (sFullNameHash)
-	{
-		var aExpandedList = Local.get(Enums.ClientSideKeyName.ExpandedFolders);
-		return Utils.isArray(aExpandedList) && -1 !== _.indexOf(aExpandedList, sFullNameHash);
-	};
+	isFolderExpanded(sFullNameHash, expandedFolders) {
+		return expandedFolders && isArray(expandedFolders) && -1 !== _.indexOf(expandedFolders, sFullNameHash);
+	}
 
 	/**
 	 * @param {string} sFolderFullNameRaw
-	 * @return {string}
+	 * @returns {string}
 	 */
-	PromisesUserPopulator.prototype.normalizeFolder = function (sFolderFullNameRaw)
-	{
-		return ('' === sFolderFullNameRaw || Consts.Values.UnuseOptionValue === sFolderFullNameRaw ||
+	normalizeFolder(sFolderFullNameRaw) {
+		return ('' === sFolderFullNameRaw || UNUSED_OPTION_VALUE === sFolderFullNameRaw ||
 			null !== Cache.getFolderFromCacheList(sFolderFullNameRaw)) ? sFolderFullNameRaw : '';
-	};
+	}
 
 	/**
 	 * @param {string} sNamespace
 	 * @param {Array} aFolders
-	 * @return {Array}
+	 * @param {Array?} expandedFolders
+	 * @returns {Array}
 	 */
-	PromisesUserPopulator.prototype.folderResponseParseRec = function (sNamespace, aFolders)
-	{
-		var
-			self = this,
-			iIndex = 0,
-			iLen = 0,
-			oFolder = null,
-			oCacheFolder = null,
-			sFolderFullNameRaw = '',
-			aSubFolders = [],
-			aList = []
-		;
+	folderResponseParseRec(sNamespace, aFolders, expandedFolders) {
 
-		for (iIndex = 0, iLen = aFolders.length; iIndex < iLen; iIndex++)
-		{
-			oFolder = aFolders[iIndex];
+		const
+			bDisplaySpecSetting = FolderStore.displaySpecSetting(),
+			aList = [];
+
+		_.each(aFolders, (oFolder) => {
 			if (oFolder)
 			{
-				sFolderFullNameRaw = oFolder.FullNameRaw;
-
-				oCacheFolder = Cache.getFolderFromCacheList(sFolderFullNameRaw);
+				let oCacheFolder = Cache.getFolderFromCacheList(oFolder.FullNameRaw);
 				if (!oCacheFolder)
 				{
 					oCacheFolder = FolderModel.newInstanceFromJson(oFolder);
 					if (oCacheFolder)
 					{
-						Cache.setFolderToCacheList(sFolderFullNameRaw, oCacheFolder);
-						Cache.setFolderFullNameRaw(oCacheFolder.fullNameHash, sFolderFullNameRaw, oCacheFolder);
+						Cache.setFolderToCacheList(oFolder.FullNameRaw, oCacheFolder);
+						Cache.setFolderFullNameRaw(oCacheFolder.fullNameHash, oFolder.FullNameRaw, oCacheFolder);
 					}
 				}
 
 				if (oCacheFolder)
 				{
-					if (!FolderStore.displaySpecSetting())
-					{
-						oCacheFolder.checkable(true);
-					}
-					else
+					if (bDisplaySpecSetting)
 					{
 						oCacheFolder.checkable(!!oFolder.Checkable);
 					}
+					else
+					{
+						oCacheFolder.checkable(true);
+					}
 
-					oCacheFolder.collapsed(!self.isFolderExpanded(oCacheFolder.fullNameHash));
+					oCacheFolder.collapsed(!this.isFolderExpanded(oCacheFolder.fullNameHash, expandedFolders));
 
 					if (oFolder.Extended)
 					{
@@ -108,70 +83,66 @@
 							Cache.setFolderHash(oCacheFolder.fullNameRaw, oFolder.Extended.Hash);
 						}
 
-						if (Utils.isNormal(oFolder.Extended.MessageCount))
+						if (isNormal(oFolder.Extended.MessageCount))
 						{
 							oCacheFolder.messageCountAll(oFolder.Extended.MessageCount);
 						}
 
-						if (Utils.isNormal(oFolder.Extended.MessageUnseenCount))
+						if (isNormal(oFolder.Extended.MessageUnseenCount))
 						{
 							oCacheFolder.messageCountUnread(oFolder.Extended.MessageUnseenCount);
 						}
 					}
 
-					aSubFolders = oFolder['SubFolders'];
-					if (aSubFolders && 'Collection/FolderCollection' === aSubFolders['@Object'] &&
-						aSubFolders['@Collection'] && Utils.isArray(aSubFolders['@Collection']))
+					if (oFolder.SubFolders && 'Collection/FolderCollection' === oFolder.SubFolders['@Object'] &&
+						oFolder.SubFolders['@Collection'] && isArray(oFolder.SubFolders['@Collection']))
 					{
 						oCacheFolder.subFolders(
-							this.folderResponseParseRec(sNamespace, aSubFolders['@Collection']));
+							this.folderResponseParseRec(sNamespace, oFolder.SubFolders['@Collection'], expandedFolders));
 					}
 
 					aList.push(oCacheFolder);
 				}
 			}
-		}
+		});
 
 		return aList;
-	};
+	}
 
-	PromisesUserPopulator.prototype.foldersList = function (oData)
-	{
+	foldersList(oData) {
 		if (oData && 'Collection/FolderCollection' === oData['@Object'] &&
-			oData['@Collection'] && Utils.isArray(oData['@Collection']))
+			oData['@Collection'] && isArray(oData['@Collection']))
 		{
-			var
-				iLimit = Utils.pInt(Settings.settingsGet('FolderSpecLimit')),
-				iC = Utils.pInt(oData['CountRec'])
-			;
+			const
+				expandedFolders = Local.get(ClientSideKeyName.ExpandedFolders),
+				cnt = pInt(oData.CountRec);
 
-			iLimit = 100 < iLimit ? 100 : (10 > iLimit ? 10 : iLimit);
+			let limit = pInt(Settings.appSettingsGet('folderSpecLimit'));
+			limit = 100 < limit ? 100 : (10 > limit ? 10 : limit);
 
-			FolderStore.displaySpecSetting(0 >= iC || iLimit < iC);
+			FolderStore.displaySpecSetting(0 >= cnt || limit < cnt);
+
 			FolderStore.folderList(this.folderResponseParseRec(
-				Utils.isUnd(oData.Namespace) ? '' : oData.Namespace, oData['@Collection']));
+				isUnd(oData.Namespace) ? '' : oData.Namespace, oData['@Collection'], expandedFolders)); // @todo optimization required
 		}
-	};
+	}
 
-	PromisesUserPopulator.prototype.foldersAdditionalParameters = function (oData)
-	{
+	foldersAdditionalParameters(oData) {
 		if (oData && oData && 'Collection/FolderCollection' === oData['@Object'] &&
-			oData['@Collection'] && Utils.isArray(oData['@Collection']))
+			oData['@Collection'] && isArray(oData['@Collection']))
 		{
-			if (!Utils.isUnd(oData.Namespace))
+			if (!isUnd(oData.Namespace))
 			{
 				FolderStore.namespace = oData.Namespace;
 			}
 
-			AppStore.threadsAllowed(
-				!!Settings.settingsGet('UseImapThread') &&
-				oData.IsThreadsSupported && true);
+			AppStore.threadsAllowed(!!Settings.appSettingsGet('useImapThread') && oData.IsThreadsSupported && true);
 
 			FolderStore.folderList.optimized(!!oData.Optimized);
 
-			var bUpdate = false;
+			let update = false;
 
-			if (oData['SystemFolders'] && '' === '' +
+			if (oData.SystemFolders && '' === '' +
 				Settings.settingsGet('SentFolder') +
 				Settings.settingsGet('DraftFolder') +
 				Settings.settingsGet('SpamFolder') +
@@ -179,13 +150,13 @@
 				Settings.settingsGet('ArchiveFolder') +
 				Settings.settingsGet('NullFolder'))
 			{
-				Settings.settingsSet('SentFolder', oData['SystemFolders'][Enums.ServerFolderType.SENT] || null);
-				Settings.settingsSet('DraftFolder', oData['SystemFolders'][Enums.ServerFolderType.DRAFTS] || null);
-				Settings.settingsSet('SpamFolder', oData['SystemFolders'][Enums.ServerFolderType.JUNK] || null);
-				Settings.settingsSet('TrashFolder', oData['SystemFolders'][Enums.ServerFolderType.TRASH] || null);
-				Settings.settingsSet('ArchiveFolder', oData['SystemFolders'][Enums.ServerFolderType.ALL] || null);
+				Settings.settingsSet('SentFolder', oData.SystemFolders[ServerFolderType.SENT] || null);
+				Settings.settingsSet('DraftFolder', oData.SystemFolders[ServerFolderType.DRAFTS] || null);
+				Settings.settingsSet('SpamFolder', oData.SystemFolders[ServerFolderType.JUNK] || null);
+				Settings.settingsSet('TrashFolder', oData.SystemFolders[ServerFolderType.TRASH] || null);
+				Settings.settingsSet('ArchiveFolder', oData.SystemFolders[ServerFolderType.ALL] || null);
 
-				bUpdate = true;
+				update = true;
 			}
 
 			FolderStore.sentFolder(this.normalizeFolder(Settings.settingsGet('SentFolder')));
@@ -194,22 +165,21 @@
 			FolderStore.trashFolder(this.normalizeFolder(Settings.settingsGet('TrashFolder')));
 			FolderStore.archiveFolder(this.normalizeFolder(Settings.settingsGet('ArchiveFolder')));
 
-			if (bUpdate)
+			if (update)
 			{
-				require('Remote/User/Ajax').saveSystemFolders(Utils.emptyFunction, {
-					'SentFolder': FolderStore.sentFolder(),
-					'DraftFolder': FolderStore.draftFolder(),
-					'SpamFolder': FolderStore.spamFolder(),
-					'TrashFolder': FolderStore.trashFolder(),
-					'ArchiveFolder': FolderStore.archiveFolder(),
-					'NullFolder': 'NullFolder'
+				Remote.saveSystemFolders(noop, {
+					SentFolder: FolderStore.sentFolder(),
+					DraftFolder: FolderStore.draftFolder(),
+					SpamFolder: FolderStore.spamFolder(),
+					TrashFolder: FolderStore.trashFolder(),
+					ArchiveFolder: FolderStore.archiveFolder(),
+					NullFolder: 'NullFolder'
 				});
 			}
 
-			Local.set(Enums.ClientSideKeyName.FoldersLashHash, oData.FoldersHash);
+			Local.set(ClientSideKeyName.FoldersLashHash, oData.FoldersHash);
 		}
-	};
+	}
+}
 
-	module.exports = new PromisesUserPopulator();
-
-}());
+export default new PromisesUserPopulator();

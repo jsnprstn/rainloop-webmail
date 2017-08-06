@@ -1,32 +1,26 @@
 
-(function () {
+import ko from 'ko';
 
-	'use strict';
+import {StorageResultType, Notification} from 'Common/Enums';
+import {bMobileDevice} from 'Common/Globals';
+import {trim, fakeMd5} from 'Common/Utils';
+import {getNotification} from 'Common/Translator';
 
-	var
-		_ = require('_'),
-		ko = require('ko'),
+import Remote from 'Remote/User/Ajax';
 
-		Enums = require('Common/Enums'),
-		Globals = require('Common/Globals'),
-		Utils = require('Common/Utils'),
-		Translator = require('Common/Translator'),
+import {getApp} from 'Helper/Apps/User';
 
-		Remote = require('Remote/User/Ajax'),
+import {popup, command} from 'Knoin/Knoin';
+import {AbstractViewNext} from 'Knoin/AbstractViewNext';
 
-		kn = require('Knoin/Knoin'),
-		AbstractView = require('Knoin/AbstractView')
-	;
-
-	/**
-	 * @constructor
-	 * @extends AbstractView
-	 */
-	function IdentityPopupView()
-	{
-		AbstractView.call(this, 'Popups', 'PopupsIdentity');
-
-		var self = this;
+@popup({
+	name: 'View/Popup/Identity',
+	templateID: 'PopupsIdentity'
+})
+class IdentityPopupView extends AbstractViewNext
+{
+	constructor() {
+		super();
 
 		this.id = '';
 		this.edit = ko.observable(false);
@@ -50,93 +44,84 @@
 		this.submitRequest = ko.observable(false);
 		this.submitError = ko.observable('');
 
-		this.bcc.subscribe(function (aValue) {
-			if (false === self.showBcc() && 0 < aValue.length)
+		this.bcc.subscribe((value) => {
+			if (false === this.showBcc() && 0 < value.length)
 			{
-				self.showBcc(true);
+				this.showBcc(true);
 			}
-		}, this);
-
-		this.replyTo.subscribe(function (aValue) {
-			if (false === self.showReplyTo() && 0 < aValue.length)
-			{
-				self.showReplyTo(true);
-			}
-		}, this);
-
-		this.addOrEditIdentityCommand = Utils.createCommand(this, function () {
-
-			if (this.signature && this.signature.__fetchEditorValue)
-			{
-				this.signature.__fetchEditorValue();
-			}
-
-			if (!this.email.hasError())
-			{
-				this.email.hasError('' === Utils.trim(this.email()));
-			}
-
-			if (this.email.hasError())
-			{
-				if (!this.owner())
-				{
-					this.email.focused(true);
-				}
-
-				return false;
-			}
-
-			if (this.replyTo.hasError())
-			{
-				this.replyTo.focused(true);
-				return false;
-			}
-
-			if (this.bcc.hasError())
-			{
-				this.bcc.focused(true);
-				return false;
-			}
-
-			this.submitRequest(true);
-
-			Remote.identityUpdate(_.bind(function (sResult, oData) {
-
-				this.submitRequest(false);
-				if (Enums.StorageResultType.Success === sResult && oData)
-				{
-					if (oData.Result)
-					{
-						require('App/User').accountsAndIdentities();
-						this.cancelCommand();
-					}
-					else if (oData.ErrorCode)
-					{
-						this.submitError(Translator.getNotification(oData.ErrorCode));
-					}
-				}
-				else
-				{
-					this.submitError(Translator.getNotification(Enums.Notification.UnknownError));
-				}
-
-			}, this), this.id, this.email(), this.name(), this.replyTo(), this.bcc(),
-				this.signature(), this.signatureInsertBefore());
-
-			return true;
-
-		}, function () {
-			return !this.submitRequest();
 		});
 
-		kn.constructorEnd(this);
+		this.replyTo.subscribe((value) => {
+			if (false === this.showReplyTo() && 0 < value.length)
+			{
+				this.showReplyTo(true);
+			}
+		});
 	}
 
-	kn.extendAsViewModel(['View/Popup/Identity', 'PopupsIdentityViewModel'], IdentityPopupView);
-	_.extend(IdentityPopupView.prototype, AbstractView.prototype);
+	@command((self) => !self.submitRequest())
+	addOrEditIdentityCommand() {
 
-	IdentityPopupView.prototype.clearPopup = function ()
-	{
+		if (this.signature && this.signature.__fetchEditorValue)
+		{
+			this.signature.__fetchEditorValue();
+		}
+
+		if (!this.email.hasError())
+		{
+			this.email.hasError('' === trim(this.email()));
+		}
+
+		if (this.email.hasError())
+		{
+			if (!this.owner())
+			{
+				this.email.focused(true);
+			}
+
+			return false;
+		}
+
+		if (this.replyTo.hasError())
+		{
+			this.replyTo.focused(true);
+			return false;
+		}
+
+		if (this.bcc.hasError())
+		{
+			this.bcc.focused(true);
+			return false;
+		}
+
+		this.submitRequest(true);
+
+		Remote.identityUpdate((result, data) => {
+
+			this.submitRequest(false);
+			if (StorageResultType.Success === result && data)
+			{
+				if (data.Result)
+				{
+					getApp().accountsAndIdentities();
+					this.cancelCommand();
+				}
+				else if (data.ErrorCode)
+				{
+					this.submitError(getNotification(data.ErrorCode));
+				}
+			}
+			else
+			{
+				this.submitError(getNotification(Notification.UnknownError));
+			}
+
+		}, this.id, this.email(), this.name(), this.replyTo(), this.bcc(), this.signature(), this.signatureInsertBefore());
+
+		return true;
+	}
+
+	clearPopup() {
 		this.id = '';
 		this.edit(false);
 		this.owner(false);
@@ -157,48 +142,45 @@
 
 		this.submitRequest(false);
 		this.submitError('');
-	};
+	}
 
 	/**
 	 * @param {?IdentityModel} oIdentity
 	 */
-	IdentityPopupView.prototype.onShow = function (oIdentity)
-	{
+	onShow(identity) {
+
 		this.clearPopup();
 
-		if (oIdentity)
+		if (identity)
 		{
 			this.edit(true);
 
-			this.id = oIdentity.id();
-			this.name(oIdentity.name());
-			this.email(oIdentity.email());
-			this.replyTo(oIdentity.replyTo());
-			this.bcc(oIdentity.bcc());
-			this.signature(oIdentity.signature());
-			this.signatureInsertBefore(oIdentity.signatureInsertBefore());
+			this.id = identity.id() || '';
+			this.name(identity.name());
+			this.email(identity.email());
+			this.replyTo(identity.replyTo());
+			this.bcc(identity.bcc());
+			this.signature(identity.signature());
+			this.signatureInsertBefore(identity.signatureInsertBefore());
 
-			this.owner(this.id === '');
+			this.owner('' === this.id);
 		}
 		else
 		{
-			this.id = Utils.fakeMd5();
+			this.id = fakeMd5();
 		}
-	};
+	}
 
-	IdentityPopupView.prototype.onShowWithDelay = function ()
-	{
-		if (!this.owner() && !Globals.bMobile)
+	onShowWithDelay() {
+		if (!this.owner() && !bMobileDevice)
 		{
 			this.email.focused(true);
 		}
-	};
+	}
 
-	IdentityPopupView.prototype.onHideWithDelay = function ()
-	{
+	onHideWithDelay() {
 		this.clearPopup();
-	};
+	}
+}
 
-	module.exports = IdentityPopupView;
-
-}());
+export {IdentityPopupView, IdentityPopupView as default};

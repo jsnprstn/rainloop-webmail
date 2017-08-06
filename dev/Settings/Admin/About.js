@@ -1,25 +1,21 @@
 
-(function () {
+/* global RL_COMMUNITY */
 
-	'use strict';
+import ko from 'ko';
 
-	var
-		ko = require('ko'),
+import {i18n, trigger as translatorTrigger} from 'Common/Translator';
+import {appSettingsGet, settingsGet} from 'Storage/Settings';
 
-		Translator = require('Common/Translator'),
+import AppStore from 'Stores/Admin/App';
+import CoreStore from 'Stores/Admin/Core';
 
-		Settings = require('Storage/Settings'),
-		CoreStore = require('Stores/Admin/Core'),
-		AppStore = require('Stores/Admin/App')
-	;
+import {getApp} from 'Helper/Apps/Admin';
 
-	/**
-	 * @constructor
-	 */
-	function AboutAdminSettings()
-	{
-		this.version = ko.observable(Settings.settingsGet('Version'));
-		this.access = ko.observable(!!Settings.settingsGet('CoreAccess'));
+class AboutAdminSettings
+{
+	constructor() {
+		this.version = ko.observable(appSettingsGet('version'));
+		this.access = ko.observable(!!settingsGet('CoreAccess'));
 		this.errorDesc = ko.observable('');
 
 		this.coreReal = CoreStore.coreReal;
@@ -37,64 +33,58 @@
 
 		this.community = RL_COMMUNITY || AppStore.community();
 
-		this.coreRemoteVersionHtmlDesc = ko.computed(function () {
-			Translator.trigger();
-			return Translator.i18n('TAB_ABOUT/HTML_NEW_VERSION', {'VERSION': this.coreRemoteVersion()});
-		}, this);
+		this.coreRemoteVersionHtmlDesc = ko.computed(() => {
+			translatorTrigger();
+			return i18n('TAB_ABOUT/HTML_NEW_VERSION', {'VERSION': this.coreRemoteVersion()});
+		});
 
-		this.statusType = ko.computed(function () {
+		this.statusType = ko.computed(() => {
+			let type = '';
+			const
+				versionToCompare = this.coreVersionCompare(),
+				isChecking = this.coreChecking(),
+				isUpdating = this.coreUpdating(),
+				isReal = this.coreReal();
 
-			var
-				sType = '',
-				iVersionCompare = this.coreVersionCompare(),
-				bChecking = this.coreChecking(),
-				bUpdating = this.coreUpdating(),
-				bReal = this.coreReal()
-			;
-
-			if (bChecking)
+			if (isChecking)
 			{
-				sType = 'checking';
+				type = 'checking';
 			}
-			else if (bUpdating)
+			else if (isUpdating)
 			{
-				sType = 'updating';
+				type = 'updating';
 			}
-			else if (bReal && 0 === iVersionCompare)
+			else if (isReal && 0 === versionToCompare)
 			{
-				sType = 'up-to-date';
+				type = 'up-to-date';
 			}
-			else if (bReal && -1 === iVersionCompare)
+			else if (isReal && -1 === versionToCompare)
 			{
-				sType = 'available';
+				type = 'available';
 			}
-			else if (!bReal)
+			else if (!isReal)
 			{
-				sType = 'error';
+				type = 'error';
 				this.errorDesc('Cannot access the repository at the moment.');
 			}
 
-			return sType;
-
-		}, this);
+			return type;
+		});
 	}
 
-	AboutAdminSettings.prototype.onBuild = function ()
-	{
+	onBuild() {
 		if (this.access() && !this.community)
 		{
-			require('App/Admin').reloadCoreData();
+			getApp().reloadCoreData();
 		}
-	};
+	}
 
-	AboutAdminSettings.prototype.updateCoreData = function ()
-	{
+	updateCoreData() {
 		if (!this.coreUpdating() && !this.community)
 		{
-			require('App/Admin').updateCoreData();
+			getApp().updateCoreData();
 		}
-	};
+	}
+}
 
-	module.exports = AboutAdminSettings;
-
-}());
+export {AboutAdminSettings, AboutAdminSettings as default};

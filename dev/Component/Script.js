@@ -1,52 +1,40 @@
 
-(function () {
+import $ from '$';
+import {AbstractComponent, componentExportHelper} from 'Component/Abstract';
 
-	'use strict';
-
-	var
-		_ = require('_'),
-		$ = require('$'),
-
-		AbstractComponent = require('Component/Abstract')
-	;
-
+class ScriptComponent extends AbstractComponent
+{
 	/**
-	 * @constructor
-	 *
-	 * @param {Object} oParams
-	 *
-	 * @extends AbstractComponent
+	 * @param {Object} params
 	 */
-	function ScriptComponent(oParams)
-	{
-		AbstractComponent.call(this);
+	constructor(params) {
 
-		if (oParams.component && oParams.component.templateNodes && oParams.element &&
-			oParams.element[0] && oParams.element[0].outerHTML)
+		super();
+
+		if (params.component && params.component.templateNodes && params.element &&
+			params.element[0] && params.element[0].outerHTML)
 		{
-			var sScript = oParams.element[0].outerHTML;
-			sScript = sScript
+			let script = params.element[0].outerHTML;
+			script = !script ? '' : script
 				.replace(/<x-script/i, '<script')
-				.replace(/<b><\/b><\/x-script>/i, '</script>')
-			;
+				.replace(/<b><\/b><\/x-script>/i, '</script>');
 
-			if (sScript)
+			if (script)
 			{
-				oParams.element.text('');
-				oParams.element.replaceWith(
-					$(sScript).text(oParams.component.templateNodes[0] &&
-						oParams.component.templateNodes[0].nodeValue ?
-							oParams.component.templateNodes[0].nodeValue : ''));
+				params.element.text('');
+				params.element.replaceWith(
+					$(script).text(
+						params.component.templateNodes[0] && params.component.templateNodes[0].nodeValue ?
+							params.component.templateNodes[0].nodeValue : ''
+					)
+				);
 			}
 			else
 			{
-				oParams.element.remove();
+				params.element.remove();
 			}
 		}
 	}
+}
 
-	_.extend(ScriptComponent.prototype, AbstractComponent.prototype);
-
-	module.exports = AbstractComponent.componentExportHelper(ScriptComponent);
-
-}());
+export default componentExportHelper(ScriptComponent, 'ScriptComponent');

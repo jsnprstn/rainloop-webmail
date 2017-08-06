@@ -1,35 +1,27 @@
 
-(function () {
+import $ from '$';
 
-	'use strict';
+let cachedUrl = null;
+const getUrl = () => {
+	if (!cachedUrl)
+	{
+		const version = $('#rlAppVersion').attr('content') || '0.0.0';
+		cachedUrl = `rainloop/v/${version}/static/css/svg/icons.svg`;
+	}
 
-	var
-		$ = require('$'),
-		sUrl = null,
-		getUtl = function () {
-			if (!sUrl)
+	return cachedUrl;
+};
+
+export default {
+	template: '<b></b>',
+	viewModel: {
+		createViewModel: ({icon = 'null'}, componentInfo) => {
+			if (componentInfo && componentInfo.element)
 			{
-				sUrl = 'rainloop/v/' + ($('#rlAppVersion').attr('content') || '0.0.0')	+ '/static/css/svg/icons.svg';
+				$(componentInfo.element).replaceWith(
+					`<svg class="svg-icon svg-icon-${icon}"><use xlink:href="${getUrl()}#svg-icon-${icon}"></use></svg>`
+				);
 			}
-
-			return sUrl;
 		}
-	;
-
-	module.exports = {
-		viewModel: {
-			createViewModel: function(oParams, oComponentInfo) {
-				var icon = oParams.icon || 'null';
-				if (oComponentInfo.element && oComponentInfo.element)
-				{
-					$(oComponentInfo.element).replaceWith(
-'<svg class="svg-icon svg-icon-' + icon + '"><use xlink:href="' + getUtl() + '#svg-icon-' + icon + '"></use></svg>');
-				}
-			}
-		},
-		'template': '<b></b>'
-	};
-
-}());
-
-
+	}
+};

@@ -1,27 +1,23 @@
 
-(function () {
+import _ from '_';
+import ko from 'ko';
+import key from 'key';
+import $ from '$';
 
-	'use strict';
+import {pString, log} from 'Common/Utils';
+import {KeyState, Magics} from 'Common/Enums';
 
-	var
-		_ = require('_'),
-		ko = require('ko'),
-		key = require('key'),
+import {popup, command} from 'Knoin/Knoin';
+import {AbstractViewNext} from 'Knoin/AbstractViewNext';
 
-		Utils = require('Common/Utils'),
-		Enums = require('Common/Enums'),
-
-		kn = require('Knoin/Knoin'),
-		AbstractView = require('Knoin/AbstractView')
-	;
-
-	/**
-	 * @constructor
-	 * @extends AbstractView
-	 */
-	function MessageOpenPgpPopupView()
-	{
-		AbstractView.call(this, 'Popups', 'PopupsMessageOpenPgp');
+@popup({
+	name: 'View/Popup/MessageOpenPgp',
+	templateID: 'PopupsMessageOpenPgp'
+})
+class MessageOpenPgpPopupView extends AbstractViewNext
+{
+	constructor() {
+		super();
 
 		this.notification = ko.observable('');
 
@@ -36,67 +32,62 @@
 
 		this.submitRequest = ko.observable(false);
 
-		// commands
-		this.doCommand = Utils.createCommand(this, function () {
+		this.sDefaultKeyScope = KeyState.PopupMessageOpenPGP;
+	}
 
-			this.submitRequest(true);
+	@command((self) => !self.submitRequest())
+	doCommand() {
 
-_.delay(_.bind(function() {
+		this.submitRequest(true);
 
-			var
-				oPrivateKeys = [],
-				oPrivateKey = null
-			;
+		_.delay(() => {
+
+			let privateKey = null;
 
 			try
 			{
 				if (this.resultCallback && this.selectedKey())
 				{
-					oPrivateKeys = this.selectedKey().getNativeKeys();
-					oPrivateKey = oPrivateKeys && oPrivateKeys[0] ? oPrivateKeys[0] : null;
+					const privateKeys = this.selectedKey().getNativeKeys();
+					privateKey = privateKeys && privateKeys[0] ? privateKeys[0] : null;
 
-					if (oPrivateKey)
+					if (privateKey)
 					{
 						try
 						{
-							if (!oPrivateKey.decrypt(Utils.pString(this.password())))
+							if (!privateKey.decrypt(pString(this.password())))
 							{
-								oPrivateKey = null;
+								log('Error: Private key cannot be decrypted');
+								privateKey = null;
 							}
 						}
 						catch (e)
 						{
-							oPrivateKey = null;
+							log(e);
+							privateKey = null;
 						}
+					}
+					else
+					{
+						log('Error: Private key cannot be found');
 					}
 				}
 			}
-			catch (oExc)
+			catch (e)
 			{
-				oPrivateKey = null;
+				log(e);
+				privateKey = null;
 			}
 
 			this.submitRequest(false);
 
 			this.cancelCommand();
-			this.resultCallback(oPrivateKey);
+			this.resultCallback(privateKey);
 
-}, this), 100);
-
-		}, function () {
-			return !this.submitRequest();
-		});
-
-		this.sDefaultKeyScope = Enums.KeyState.PopupMessageOpenPGP;
-
-		kn.constructorEnd(this);
+		}, Magics.Time100ms);
 	}
 
-	kn.extendAsViewModel(['View/Popup/MessageOpenPgp'], MessageOpenPgpPopupView);
-	_.extend(MessageOpenPgpPopupView.prototype, AbstractView.prototype);
-
-	MessageOpenPgpPopupView.prototype.clearPopup = function ()
-	{
+	clearPopup() {
 		this.notification('');
 
 		this.password('');
@@ -108,11 +99,10 @@ _.delay(_.bind(function() {
 
 		this.resultCallback = null;
 		this.privateKeys([]);
-	};
+	}
 
-	MessageOpenPgpPopupView.prototype.onBuild = function (oDom)
-	{
-		key('tab,shift+tab', Enums.KeyState.PopupMessageOpenPGP, _.bind(function () {
+	onBuild(oDom) {
+		key('tab,shift+tab', KeyState.PopupMessageOpenPGP, () => {
 
 			switch (true)
 			{
@@ -122,58 +112,52 @@ _.delay(_.bind(function() {
 				case this.buttonFocus():
 					this.password.focus(true);
 					break;
+				// no default
 			}
 
 			return false;
 
-		}, this));
+		});
 
-		var self = this;
+		const self = this;
 
 		oDom
-			.on('click', '.key-list__item', function () {
+			.on('click', '.key-list__item', function() { // eslint-disable-line prefer-arrow-callback
 
 				oDom.find('.key-list__item .key-list__item__radio')
 					.addClass('icon-radio-unchecked')
-					.removeClass('icon-radio-checked')
-				;
+					.removeClass('icon-radio-checked');
 
-				$(this).find('.key-list__item__radio')
+				$(this).find('.key-list__item__radio') // eslint-disable-line no-invalid-this
 					.removeClass('icon-radio-unchecked')
-					.addClass('icon-radio-checked')
-				;
+					.addClass('icon-radio-checked');
 
-				self.selectedKey(ko.dataFor(this));
+				self.selectedKey(ko.dataFor(this)); // eslint-disable-line no-invalid-this
 
 				self.password.focus(true);
-			})
-		;
-	};
+			});
+	}
 
-	MessageOpenPgpPopupView.prototype.onHideWithDelay = function ()
-	{
+	onHideWithDelay() {
 		this.clearPopup();
-	};
+	}
 
-	MessageOpenPgpPopupView.prototype.onShowWithDelay = function ()
-	{
+	onShowWithDelay() {
 		this.password.focus(true);
-//		this.buttonFocus(true);
-	};
+	//		this.buttonFocus(true);
+	}
 
-	MessageOpenPgpPopupView.prototype.onShow = function (fCallback, aPrivateKeys)
-	{
+	onShow(fCallback, privateKeys) {
 		this.clearPopup();
 
 		this.resultCallback = fCallback;
-		this.privateKeys(aPrivateKeys);
+		this.privateKeys(privateKeys);
 
 		if (this.viewModelDom)
 		{
 			this.viewModelDom.find('.key-list__item').first().click();
 		}
-	};
+	}
+}
 
-	module.exports = MessageOpenPgpPopupView;
-
-}());
+export {MessageOpenPgpPopupView, MessageOpenPgpPopupView as default};

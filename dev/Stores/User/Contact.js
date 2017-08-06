@@ -1,25 +1,17 @@
 
-(function () {
+import ko from 'ko';
+import {Magics} from 'Common/Enums';
+import * as Settings from 'Storage/Settings';
 
-	'use strict';
-
-	var
-		ko = require('ko'),
-
-		Settings = require('Storage/Settings')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function ContactUserStore()
-	{
+class ContactUserStore
+{
+	constructor() {
 		this.contacts = ko.observableArray([]);
-		this.contacts.loading = ko.observable(false).extend({'throttle': 200});
-		this.contacts.importing = ko.observable(false).extend({'throttle': 200});
-		this.contacts.syncing = ko.observable(false).extend({'throttle': 200});
-		this.contacts.exportingVcf = ko.observable(false).extend({'throttle': 200});
-		this.contacts.exportingCsv = ko.observable(false).extend({'throttle': 200});
+		this.contacts.loading = ko.observable(false).extend({throttle: Magics.Time200ms});
+		this.contacts.importing = ko.observable(false).extend({throttle: Magics.Time200ms});
+		this.contacts.syncing = ko.observable(false).extend({throttle: Magics.Time200ms});
+		this.contacts.exportingVcf = ko.observable(false).extend({throttle: Magics.Time200ms});
+		this.contacts.exportingCsv = ko.observable(false).extend({throttle: Magics.Time200ms});
 
 		this.allowContactsSync = ko.observable(false);
 		this.enableContactsSync = ko.observable(false);
@@ -28,16 +20,14 @@
 		this.contactsSyncPass = ko.observable('');
 	}
 
-	ContactUserStore.prototype.populate = function ()
-	{
+	populate() {
 		this.allowContactsSync(!!Settings.settingsGet('ContactsSyncIsAllowed'));
 		this.enableContactsSync(!!Settings.settingsGet('EnableContactsSync'));
 
 		this.contactsSyncUrl(Settings.settingsGet('ContactsSyncUrl'));
 		this.contactsSyncUser(Settings.settingsGet('ContactsSyncUser'));
 		this.contactsSyncPass(Settings.settingsGet('ContactsSyncPassword'));
-	};
+	}
+}
 
-	module.exports = new ContactUserStore();
-
-}());
+export default new ContactUserStore();

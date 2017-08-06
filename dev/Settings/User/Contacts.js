@@ -1,22 +1,16 @@
 
-(function () {
+import ko from 'ko';
 
-	'use strict';
+import {Magics} from 'Common/Enums';
+import {boolToAjax} from 'Common/Utils';
 
-	var
-		ko = require('ko'),
+import AppStore from 'Stores/User/App';
+import ContactStore from 'Stores/User/Contact';
+import Remote from 'Remote/User/Ajax';
 
-		AppStore = require('Stores/User/App'),
-		ContactStore = require('Stores/User/Contact'),
-
-		Remote = require('Remote/User/Ajax')
-	;
-
-	/**
-	 * @constructor
-	 */
-	function ContactsUserSettings()
-	{
+class ContactsUserSettings
+{
+	constructor() {
 		this.contactsAutosave = AppStore.contactsAutosave;
 
 		this.allowContactsSync = ContactStore.allowContactsSync;
@@ -25,34 +19,30 @@
 		this.contactsSyncUser = ContactStore.contactsSyncUser;
 		this.contactsSyncPass = ContactStore.contactsSyncPass;
 
-		this.saveTrigger = ko.computed(function () {
-			return [
-				this.enableContactsSync() ? '1' : '0',
-				this.contactsSyncUrl(),
-				this.contactsSyncUser(),
-				this.contactsSyncPass()
-			].join('|');
-		}, this).extend({'throttle': 500});
+		this.saveTrigger = ko.computed(() => [
+			this.enableContactsSync() ? '1' : '0',
+			this.contactsSyncUrl(),
+			this.contactsSyncUser(),
+			this.contactsSyncPass()
+		].join('|')).extend({throttle: Magics.Time500ms});
 	}
 
-	ContactsUserSettings.prototype.onBuild = function ()
-	{
-		this.contactsAutosave.subscribe(function (bValue) {
+	onBuild() {
+		this.contactsAutosave.subscribe((value) => {
 			Remote.saveSettings(null, {
-				'ContactsAutosave': bValue ? '1' : '0'
+				'ContactsAutosave': boolToAjax(value)
 			});
 		});
 
-		this.saveTrigger.subscribe(function () {
+		this.saveTrigger.subscribe(() => {
 			Remote.saveContactsSyncData(null,
 				this.enableContactsSync(),
 				this.contactsSyncUrl(),
 				this.contactsSyncUser(),
 				this.contactsSyncPass()
 			);
-		}, this);
-	};
+		});
+	}
+}
 
-	module.exports = ContactsUserSettings;
-
-}());
+export {ContactsUserSettings, ContactsUserSettings as default};
